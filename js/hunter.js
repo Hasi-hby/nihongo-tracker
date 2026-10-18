@@ -1,6 +1,6 @@
 // Solo-Leveling-style progression: XP = minutes, level L needs L(L+1)/2 hours in total.
 
-import { startOfWeek } from './util.js?v=1.4.0';
+import { startOfWeek } from './util.js?v=1.5.0';
 
 export const RANKS = [
   { id: 'E', name: 'E-Rang', h: 0, color: '#9ca3af' },
@@ -69,20 +69,27 @@ export const ACHIEVEMENTS = [
   { id: 'versatile', icon: '✦', name: 'Vielseitig', desc: '4 verschiedene Aktivitäten an einem Tag' },
   { id: 'night', icon: '☾', name: 'Nachtschicht', desc: 'Log zwischen 0 und 4 Uhr' },
   { id: 'quest7', icon: '✔', name: 'Quest-Meister', desc: '7 Tage alle Daily Quests erfüllt' },
+  { id: 'c7', icon: '🎙', name: 'Echo', desc: '7 Tage Chorus-Streak', cstreak: 7 },
+  { id: 'c30', icon: '🎙', name: 'Stimme des Schattens', desc: '30 Tage Chorus-Streak', cstreak: 30 },
+  { id: 'c100', icon: '🎙', name: 'Monarch der Stimmen', desc: '100 Tage Chorus-Streak', cstreak: 100 },
+  { id: 'cpen', icon: '⚠', name: 'Strafzone überlebt', desc: 'Eine Chorus-Strafquest bestanden' },
+  { id: 'c50h', icon: '🎙', name: 'Pitch-Jäger', desc: '50 h Chorusing gesamt', cmin: 50 * H },
 ];
 
 /** Unlock date for each achievement, replayed over the whole history. */
-export function achievements(dm, streak, logs, questHist, ws = 1) {
+export function achievements(dm, streak, logs, questHist, ws = 1, chorus = null, chorusActivity = '') {
   const got = {};
   const hit = (id, d) => { if (!got[id]) got[id] = d; };
   const week = new Map();
-  let cum = 0;
+  let cum = 0, ccum = 0;
   for (const d of [...dm.keys()].sort()) {
     const e = dm.get(d);
     if (e.total <= 0) continue;
     cum += e.total;
+    ccum += e.by[chorusActivity] || 0;
     hit('first', d);
     const s = streak.perDay.get(d) || 0;
+    const cs = chorus?.perDay.get(d) || 0;
     const wk = startOfWeek(d, ws);
     const w = (week.get(wk) || 0) + e.total;
     week.set(wk, w);
@@ -91,6 +98,8 @@ export function achievements(dm, streak, logs, questHist, ws = 1) {
       if (a.streak && s >= a.streak) hit(a.id, d);
       if (a.day && e.total >= a.day) hit(a.id, d);
       if (a.week && w >= a.week) hit(a.id, d);
+      if (a.cstreak && cs >= a.cstreak) hit(a.id, d);
+      if (a.cmin && ccum >= a.cmin) hit(a.id, d);
     }
     if (Object.keys(e.by).length >= 4) hit('versatile', d);
   }
@@ -101,6 +110,7 @@ export function achievements(dm, streak, logs, questHist, ws = 1) {
     if (h < 4 && (!night || l.d < night)) night = l.d;
   }
   if (night) hit('night', night);
+  if (chorus?.redeemedOn.length) hit('cpen', chorus.redeemedOn[0]);
   let run = 0;
   for (const [d, ok] of questHist) {
     run = ok ? run + 1 : 0;

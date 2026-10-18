@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aggregate, dayMap, periodRange, questHistory, questProgress, recap, streakInfo, totals, weekCompare,
+  aggregate, chorusInfo, dayMap, periodRange, questHistory, questProgress, recap, streakInfo, totals, weekCompare,
 } from '../js/stats.js';
 import { levelFor, rankFor } from '../js/hunter.js';
 import { addDays, dayOf, parseDuration } from '../js/util.js';
@@ -75,6 +75,44 @@ test('quests: daily progress and cleared-day history', () => {
   const h = questHistory([q], dm, '2026-10-12');
   assert.equal(h.best, 2);
   assert.equal(h.hist.get('2026-10-12'), false);
+});
+
+// ---- chorus streak + penalty quest ----
+const chorusDays = (spec) => dayMap(Object.entries(spec).map(([d, m], i) => ({ id: `c${i}`, d, t: 0, a: 'phonetic training', m, u: 0 })));
+
+test('chorus: consecutive days build the streak, today stays open', () => {
+  const c = chorusInfo(chorusDays({ '2026-10-01': 5, '2026-10-02': 8, '2026-10-03': 10 }), '2026-10-04');
+  assert.equal(c.current, 3);
+  assert.equal(c.state, 'open');
+  assert.equal(c.need, 5);
+  assert.equal(chorusInfo(chorusDays({ '2026-10-01': 4 }), '2026-10-02').current, 0); // under the minimum
+});
+
+test('chorus: a missed day turns today into a penalty quest with double time', () => {
+  const c = chorusInfo(chorusDays({ '2026-10-01': 5, '2026-10-02': 5, '2026-10-04': 6 }), '2026-10-04');
+  assert.equal(c.state, 'penalty');
+  assert.equal(c.need, 10);
+  assert.equal(c.penaltyFor, '2026-10-03');
+  assert.equal(c.current, 2); // still alive, at stake
+});
+
+test('chorus: meeting the penalty redeems the missed day', () => {
+  const c = chorusInfo(chorusDays({ '2026-10-01': 5, '2026-10-02': 5, '2026-10-04': 10, '2026-10-05': 5 }), '2026-10-05');
+  assert.equal(c.current, 4);
+  assert.equal(c.marks.get('2026-10-03'), 'redeemed');
+  assert.equal(c.redeemedCount, 1);
+  assert.deepEqual(c.redeemedOn, ['2026-10-04']);
+  assert.equal(c.state, 'done');
+});
+
+test('chorus: failing the penalty breaks the streak (restart at 1 if the minimum was met)', () => {
+  const restart = chorusInfo(chorusDays({ '2026-10-01': 5, '2026-10-02': 5, '2026-10-04': 6 }), '2026-10-05');
+  assert.equal(restart.current, 1);
+  assert.equal(restart.longest, 2);
+  assert.equal(restart.marks.get('2026-10-03'), 'missed');
+  const broken = chorusInfo(chorusDays({ '2026-10-01': 5, '2026-10-02': 5 }), '2026-10-05');
+  assert.equal(broken.current, 0); // two missed days in a row
+  assert.equal(broken.state, 'open');
 });
 
 test('custom day end moves a 2 am session to the previous day', () => {

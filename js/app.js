@@ -1,17 +1,17 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.4.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.4.0';
-import { Sync } from './sync.js?v=1.4.0';
-import * as St from './stats.js?v=1.4.0';
-import * as Hu from './hunter.js?v=1.4.0';
-import * as Ch from './charts.js?v=1.4.0';
-import { rankBadge } from './badge.js?v=1.4.0';
-import { buildExport } from './export.js?v=1.4.0';
-import { zip } from './zip.js?v=1.4.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.5.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.5.0';
+import { Sync } from './sync.js?v=1.5.0';
+import * as St from './stats.js?v=1.5.0';
+import * as Hu from './hunter.js?v=1.5.0';
+import * as Ch from './charts.js?v=1.5.0';
+import { rankBadge } from './badge.js?v=1.5.0';
+import { buildExport } from './export.js?v=1.5.0';
+import { zip } from './zip.js?v=1.5.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.4.0';
+} from './util.js?v=1.5.0';
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -47,6 +47,16 @@ const shortcuts = () => (S.meta.shortcuts || []).filter((s) => !s.x).sort(byOrde
 const quests = () => (S.meta.quests || []).filter((q) => !q.x);
 const timer = () => S.meta.timer || { state: 'idle' };
 const pct = (x) => Math.max(0, Math.min(100, x * 100)).toFixed(1);
+const CHORUS_DEFAULTS = { on: true, a: 'phonetic training', m: 5, from: 14, until: 16 };
+const chorusCfg = () => ({ ...CHORUS_DEFAULTS, ...(settings().chorus || {}) });
+
+/** ms until the current tracking day ends (midnight, or the custom day end). */
+function msUntilDayEnd() {
+  const now = new Date(), end = new Date(now);
+  end.setHours(settings().dayEnd || 0, 0, 0, 0);
+  if (end <= now) end.setDate(end.getDate() + 1);
+  return end - now;
+}
 
 function colorOf(name) {
   const a = (S.meta.activities || []).find((x) => x.name === name);
@@ -77,10 +87,12 @@ function D() {
   const hours = tot.total / 60;
   const qh = St.questHistory(quests(), dm, t);
   const firstDay = [...dm.keys()].sort()[0] || t;
+  const cc = chorusCfg();
+  const chorus = St.chorusInfo(dm, t, { activity: cc.a, min: cc.m });
   cache = {
-    ver: S.ver, today: t, logs, live, dm, streak, tot, hours, qh, firstDay,
+    ver: S.ver, today: t, logs, live, dm, streak, tot, hours, qh, firstDay, chorus,
     level: Hu.levelFor(hours), rank: Hu.rankFor(hours),
-    ach: Hu.achievements(dm, streak, live, qh.hist, ws()),
+    ach: Hu.achievements(dm, streak, live, qh.hist, ws(), chorus, cc.a),
   };
   return cache;
 }
@@ -202,6 +214,15 @@ function celebrate(before, after) {
     big = big || 'LEVEL UP!';
     lines.push(`Lv. ${before.level.level} → <b>Lv. ${after.level.level}</b>`);
   }
+  if (chorusCfg().on && before.chorus.state !== 'done' && after.chorus.state === 'done') {
+    if (before.chorus.state === 'penalty') {
+      big = big || 'STRAFQUEST ÜBERSTANDEN';
+      lines.push(`Dein Chorus-Streak ist gerettet: <b>${fmtNum(after.chorus.current)} Tage</b>`);
+    } else {
+      big = big || 'QUEST ABGESCHLOSSEN';
+      lines.push(`Daily Quest Chorusing erfüllt · Chorus-Streak <b>${fmtNum(after.chorus.current)}</b>`);
+    }
+  }
   const had = new Set(before.ach.filter((a) => a.date).map((a) => a.id));
   for (const a of after.ach) {
     if (a.date && !had.has(a.id)) { big = big || 'TITEL ERHALTEN'; lines.push(`${a.icon} Titel <b>„${esc(a.name)}“</b> erhalten`); }
@@ -216,6 +237,31 @@ function celebrate(before, after) {
     <button class="btn btn-system" value="ok" autofocus>Weiter</button></form>`;
   dlg.showModal();
   return true;
+}
+
+/** Once per day and device: announce an active penalty quest when the app opens. */
+async function penaltyNotice() {
+  const d = D();
+  if (!chorusCfg().on || d.chorus.state !== 'penalty' || $('#modal').open) return;
+  if ((await getKV('penaltySeen')) === d.today) return;
+  await setKV('penaltySeen', d.today);
+  const dlg = $('#modal');
+  dlg.className = 'system-popup penalty-popup';
+  dlg.innerHTML = `<form method="dialog" class="modal-body">
+    <div class="sys-title">System · Warnung</div>
+    <div class="big">STRAFQUEST</div>
+    <div>Die tägliche Quest <b>„${esc(chorusCfg().a)}“</b> wurde gestern nicht abgeschlossen.</div>
+    <div>Chorus heute <b>${fmtMin(d.chorus.need)}</b>, sonst verlierst du deinen Chorus-Streak von <b>${fmtNum(d.chorus.current)} Tagen</b>.</div>
+    <div class="muted small">Verbleibende Zeit: <span class="num">${fmtClock(msUntilDayEnd())}</span></div>
+    <div class="row" style="justify-content:center"><button class="btn" value="ok">Später</button>
+      <button class="btn btn-penalty" value="log" autofocus>Jetzt loggen</button></div></form>`;
+  dlg.addEventListener('close', () => { if (dlg.returnValue === 'log') chorusLog(); }, { once: true });
+  dlg.showModal();
+}
+
+function chorusLog() {
+  const cc = chorusCfg();
+  return openLogModal(null, { a: cc.a, m: D().chorus.need, src: 'shortcut', quick: true });
 }
 
 // ---- Toasts ---------------------------------------------------------------------------
@@ -287,6 +333,76 @@ function questLabel(q) {
 }
 
 const QUEST_TITLES = { day: 'Daily Quest', week: 'Weekly Quest', month: 'Monthly Quest' };
+
+/** Hunter page: chorus streak stats and the last five weeks as a small calendar. */
+function chorusCard(d) {
+  const cc = chorusCfg();
+  if (!cc.on) return '';
+  const c = d.chorus;
+  const start = addDays(startOfWeek(d.today, ws()), -28);
+  const cells = [...eachDay(start, addDays(start, 34))].map((day) => {
+    let st = c.marks.get(day) || '';
+    if (day === d.today) st = c.state === 'done' ? 'done' : c.state === 'penalty' ? 'penalty' : 'today';
+    else if (day > d.today) st = 'future';
+    else if (!st && c.first && day >= c.first) st = 'missed';
+    const label = { done: 'erfüllt', redeemed: 'gesühnt (Strafquest bestanden)', missed: 'verpasst', penalty: 'Strafquest heute', today: 'heute offen' }[st] || '';
+    const m = d.dm.get(day)?.by[cc.a] || 0;
+    return `<i class="cc-${st || 'none'}" title="${fmtDate(day, { weekday: true })}${label ? ` · ${label}` : ''}${m ? ` · ${fmtMin(m)}` : ''}">${+day.slice(8)}</i>`;
+  }).join('');
+  const wd = [...eachDay(start, addDays(start, 6))].map((x) => `<b>${WD[new Date(`${x}T12:00`).getDay()]}</b>`).join('');
+  return `<div class="card"><div class="card-head"><h2>${icon('flame')} Chorus</h2><span class="sub">Daily Quest: ${fmtMin(cc.m)} ${esc(cc.a)} · Strafquest doppelt</span></div>
+    <div class="cols-2">
+      <div class="stat-list">
+        <div class="stat-row"><span>Aktueller Chorus-Streak</span><b>${fmtNum(c.current)} Tage</b></div>
+        <div class="stat-row"><span>Längster Chorus-Streak</span><b>${fmtNum(c.longest)} Tage</b></div>
+        <div class="stat-row"><span>Tage mit erfüllter Quest</span><b>${fmtNum(c.daysDone)}</b></div>
+        <div class="stat-row"><span>Strafquests bestanden</span><b>${fmtNum(c.redeemedCount)}</b></div>
+        <div class="stat-row"><span>Chorusing gesamt</span><b>${fmtH(c.totalMin)}</b></div>
+      </div>
+      <div><div class="ccal">${wd}${cells}</div>
+        <div class="ccal-legend small muted"><span><i class="cc-done"></i>erfüllt</span><span><i class="cc-redeemed"></i>gesühnt</span>
+          <span><i class="cc-missed"></i>verpasst</span><span><i class="cc-penalty"></i>Strafquest</span></div></div>
+    </div></div>`;
+}
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+/** The chorus daily quest / penalty quest, Solo-Leveling style. */
+function chorusBlock(d) {
+  const cc = chorusCfg();
+  if (!cc.on) return '';
+  const c = d.chorus, need = c.need, done = c.doneToday;
+  const hour = new Date().getHours();
+  const streakTxt = `${icon('flame', 14)} Chorus-Streak <b class="num">${fmtNum(c.current)}</b> Tag${c.current === 1 ? '' : 'e'} · Rekord ${fmtNum(c.longest)}`;
+  const logBtn = `<button class="btn btn-sm ${c.state === 'penalty' ? 'btn-penalty' : 'btn-system'}" data-action="chorus-log">${icon('plus', 14)} Jetzt loggen</button>`;
+  const bar = `<div class="bar ${c.state === 'done' ? 'green' : ''}"><i style="width:${pct(done / need)}%"></i></div>`;
+
+  if (c.state === 'done') {
+    return `<div class="sys chorus-q is-done"><div class="cq-head"><div class="sys-title">Daily Quest · ${esc(cc.a)}</div>
+      <span class="cq-ok">Abgeschlossen ✓</span></div>
+      <div class="cq-sub">${streakTxt} · heute ${fmtMin(done)}</div></div>`;
+  }
+  if (c.state === 'penalty') {
+    return `<div class="sys chorus-q penalty"><div class="cq-head"><div class="sys-title">Strafquest</div>
+      <span class="cq-count num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</span></div>
+      <div class="cq-text">Die tägliche Quest wurde gestern nicht abgeschlossen. Chorus heute <b>${fmtMin(need)}</b>, sonst ist dein
+        Chorus-Streak von <b>${fmtNum(c.current)} Tag${c.current === 1 ? '' : 'en'}</b> verloren.</div>
+      <div class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</div>${bar}
+      <div class="cq-foot"><span class="cq-sub">${streakTxt}</span>${logBtn}</div></div>`;
+  }
+  // open
+  let hint = `Heute ab ${cc.from} Uhr ist Chorus-Zeit.`, cls = '';
+  if (hour >= cc.from && hour < cc.until) { hint = `⏰ Chorus-Zeit! ${fmtMin(need)}, dann ist die Daily Quest erledigt.`; cls = 'in-window'; }
+  else if (hour >= cc.until) {
+    hint = c.current > 0
+      ? `Zeitfenster vorbei – noch <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b> bis zur Strafzone.`
+      : `Zeitfenster vorbei – heute geht noch was: <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>.`;
+    cls = 'late';
+  }
+  return `<div class="sys chorus-q ${cls}"><div class="cq-head"><div class="sys-title">Daily Quest · ${esc(cc.a)}</div>
+      <span class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</span></div>
+    ${bar}<div class="cq-hint">${hint}</div>
+    <div class="cq-foot"><span class="cq-sub">${streakTxt}</span>${logBtn}</div></div>`;
+}
 
 function questsPanel(d) {
   const qs = quests();
@@ -401,6 +517,7 @@ function viewHome() {
   const wcTxt = wc.pct == null ? 'erste Woche' : `<span class="${wc.pct >= 0 ? 'up' : 'down'}">${wc.pct >= 0 ? '+' : ''}${wc.pct} %</span> ggü. letzter Woche`;
   return `<div class="grid">
     ${hunterCard(d)}
+    ${chorusBlock(d)}
     ${!S.device.token && !d.live.length ? `<div class="sys"><div class="sys-title">Willkommen, Hunter</div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
       <button class="btn btn-system" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
@@ -512,6 +629,7 @@ function viewHunter() {
             <div class="small muted" style="text-align:right">${reached ? `seit ${fmtDate(when)}` : `noch ${fmtH((x.h - d.hours) * 60)}${f?.date ? `<br>~ ${fmtDate(f.date)}` : ''}`}</div></div>`;
         }).join('')}</div></div>
     </div>
+    ${chorusCard(d)}
     <div class="card"><div class="card-head"><h2>Prognose</h2><span class="sub">bei deinem Schnitt der letzten 30 Tage: ${fmtMin(avg)} pro Tag</span></div>
       <div class="stat-list">
         ${fcRow(`Lv. ${L.level + 1}`, L.next * 60)}
@@ -557,6 +675,7 @@ function renderLogList() {
     ${rows.length > shown.length ? `<div class="row" style="justify-content:center;margin-top:12px"><button class="btn" data-action="more-logs">Mehr anzeigen (${fmtNum(rows.length - shown.length)} weitere)</button></div>` : ''}`;
 }
 
+const HOURS = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? 'selected' : ''}>${h}:00 Uhr</option>`).join('');
 const ATTR_OPTS = (sel) => Hu.ATTRS.map((a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${a.name}</option>`).join('');
 const ACT_OPTS = (sel, withAll = false) => (withAll ? `<option value="">Gesamt (alle)</option>` : '')
   + acts().map((a) => `<option ${a.name === sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
@@ -622,6 +741,17 @@ function viewSettings() {
         <label class="field"><span>Farbe</span><input type="color" id="newActColor" value="#38bdf8"></label>
         <label class="field"><span>Attribut</span><select id="newActAttr">${ATTR_OPTS('read')}</select></label>
         <button class="btn" data-action="act-add">Hinzufügen</button></div></div>
+
+    <div class="card" id="sec-chorus"><div class="card-head"><h2>${icon('flame')} Chorus-Quest</h2><span class="sub">Daily Quest + Strafquest (doppelte Zeit)</span></div>
+      <label class="toggle"><input type="checkbox" data-change="ch-on" ${chorusCfg().on ? 'checked' : ''}>
+        <span><b>Chorus-Quest aktiv</b><br><span class="muted small">Jeden Tag eine kleine Pflicht. Verpasst du sie, kommt am nächsten Tag eine Strafquest mit doppelter Zeit.
+          Schaffst du die, ist dein Chorus-Streak gerettet.</span></span></label>
+      <div class="form-grid">
+        <label class="field"><span>Zählt als Chorusing</span><select data-change="ch-a">${ACT_OPTS(chorusCfg().a)}</select></label>
+        <label class="field"><span>Daily Quest (Minuten)</span><input type="number" min="1" max="120" data-change="ch-m" value="${chorusCfg().m}"></label>
+        <label class="field"><span>Chorus-Zeit ab</span><select data-change="ch-from">${HOURS(chorusCfg().from)}</select></label>
+        <label class="field"><span>bis</span><select data-change="ch-until">${HOURS(chorusCfg().until)}</select></label>
+      </div></div>
 
     <div class="card"><div class="card-head"><h2>Allgemein</h2></div><div class="form-grid">
       <label class="field"><span>Hunter-Name</span><input type="text" data-change="set-name" value="${esc(set.name || '')}" placeholder="Hunter"></label>
@@ -923,6 +1053,7 @@ async function onAction(el) {
       if (sc) await shortcutTap(sc);
       return;
     }
+    case 'chorus-log': return chorusLog();
     case 'quest-new': return openQuestModal();
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
@@ -1025,6 +1156,12 @@ function bindEvents() {
     if (key === 'set-name') setSettings({ name: el.value.trim() }, 'Name');
     if (key === 'set-dayend') setSettings({ dayEnd: +el.value }, 'Tagesende');
     if (key === 'set-instant') setSettings({ instantShortcuts: el.checked }, 'Shortcut-Modus');
+    if (key.startsWith('ch-')) {
+      const field = key.slice(3);
+      const value = field === 'on' ? el.checked : field === 'a' ? el.value : +el.value;
+      if (field === 'm' && !(value > 0)) return;
+      setSettings({ chorus: { ...chorusCfg(), [field]: value } }, 'Chorus-Quest');
+    }
   });
 
   document.addEventListener('input', (e) => {
@@ -1053,7 +1190,7 @@ function bindEvents() {
   });
   addEventListener('online', () => sync.run());
   addEventListener('offline', () => sync.setStatus('offline'));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run().then(penaltyNotice); render(); } });
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   let rt;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawBars(); }, 150); });
@@ -1061,8 +1198,14 @@ function bindEvents() {
   setInterval(() => {
     const el = $('#timerClock');
     if (el && timer().state === 'running') el.textContent = fmtClock(timerElapsed());
+    const cd = $('#cqCountdown');
+    if (cd) cd.textContent = fmtClock(msUntilDayEnd());
   }, 1000);
-  setInterval(() => { if (cache.today && cache.today !== today()) render(); }, 60_000);
+  let lastHour = new Date().getHours();
+  setInterval(() => {
+    const h = new Date().getHours();
+    if ((cache.today && cache.today !== today()) || h !== lastHour) { lastHour = h; render(); }
+  }, 60_000);
   setInterval(() => { if (document.visibilityState === 'visible') sync.run(); }, 120_000);
 }
 
@@ -1099,7 +1242,7 @@ async function boot() {
   render();
   window.__booted = true;
   try { sessionStorage.removeItem('nh-heal'); } catch { /* storage blocked */ }
-  sync.run();
+  sync.run().then(penaltyNotice);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

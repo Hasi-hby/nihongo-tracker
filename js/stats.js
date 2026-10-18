@@ -1,7 +1,7 @@
 import {
   addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=1.4.0';
+} from './util.js?v=1.5.0';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {
@@ -75,6 +75,62 @@ export function streakInfo(dm, today, { freezeStart = null, starterFreezes = 0, 
   res.freezes = freezes;
   res.nextFreezeIn = every - since;
   res.atRisk = !res.todayDone && streak > 0;
+  return res;
+}
+
+/**
+ * Chorus streak with a penalty quest. A day counts when `activity` reaches `min` minutes.
+ * A missed day does not break a running streak at once: the next day becomes a penalty
+ * day that needs `min * factor`. Meet it and the missed day is redeemed (streak goes on);
+ * miss it and the streak breaks (restarting at 1 if that day still reached `min`).
+ * Two missed days in a row always break. Derived from the logs only.
+ */
+export function chorusInfo(dm, today, { activity = 'phonetic training', min = 5, factor = 2 } = {}) {
+  const amount = (d) => dm.get(d)?.by[activity] || 0;
+  const penaltyNeed = Math.ceil(min * factor);
+  const res = {
+    current: 0, longest: 0, perDay: new Map(), marks: new Map(), state: 'open', need: min,
+    doneToday: amount(today), redeemedCount: 0, redeemedOn: [], daysDone: 0, totalMin: 0, penaltyFor: null, first: null,
+  };
+  const days = [...dm.keys()].filter((d) => amount(d) > 0).sort();
+  for (const d of days) res.totalMin += amount(d);
+  if (!days.length) return res;
+  res.first = days[0];
+  let streak = 0, pending = null;
+  const done = (d) => {
+    streak++;
+    res.daysDone++;
+    res.marks.set(d, 'done');
+    res.perDay.set(d, streak);
+  };
+  for (const d of eachDay(days[0], today)) {
+    const m = amount(d), isToday = d === today;
+    if (pending) {
+      if (m >= penaltyNeed) {
+        res.marks.set(pending, 'redeemed');
+        res.redeemedCount++;
+        res.redeemedOn.push(d);
+        pending = null;
+        done(d);
+      } else if (isToday) {
+        res.state = 'penalty';
+        res.penaltyFor = pending;
+        res.need = penaltyNeed;
+      } else {
+        res.marks.set(pending, 'missed');
+        pending = null;
+        streak = 0;
+        if (m >= min) done(d); else res.marks.set(d, 'missed');
+      }
+    } else if (m >= min) {
+      done(d);
+    } else if (!isToday) {
+      if (streak > 0) pending = d; else res.marks.set(d, 'missed');
+    }
+    res.longest = Math.max(res.longest, streak);
+  }
+  res.current = streak;
+  if (res.marks.get(today) === 'done') res.state = 'done';
   return res;
 }
 
