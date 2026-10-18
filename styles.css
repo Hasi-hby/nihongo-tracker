@@ -499,6 +499,11 @@ dialog[open].system-popup { animation: sysIn 0.35s ease-out; }
 .toast button { margin-left: auto; background: none; border: 0; color: inherit; font-weight: 800; text-decoration: underline; }
 @keyframes toastIn { from { transform: translateY(8px); opacity: 0; } }
 
+.export-main { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 14px; border-radius: 13px; background: var(--panel-2); border: 1px solid var(--line); }
+.export-list { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 3px; color: var(--muted); }
+.export-list code { color: var(--text); }
+@media (max-width: 520px) { .export-main .btn { width: 100%; } }
+
 details.guide summary { cursor: pointer; font-weight: 600; }
 details.guide ol { padding-left: 1.2em; margin: 10px 0 0; display: grid; gap: 6px; }
 code { font: 0.85em ui-monospace, Consolas, monospace; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }

@@ -1,15 +1,17 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.3.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.3.0';
-import { Sync } from './sync.js?v=1.3.0';
-import * as St from './stats.js?v=1.3.0';
-import * as Hu from './hunter.js?v=1.3.0';
-import * as Ch from './charts.js?v=1.3.0';
-import { rankBadge } from './badge.js?v=1.3.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.4.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.4.0';
+import { Sync } from './sync.js?v=1.4.0';
+import * as St from './stats.js?v=1.4.0';
+import * as Hu from './hunter.js?v=1.4.0';
+import * as Ch from './charts.js?v=1.4.0';
+import { rankBadge } from './badge.js?v=1.4.0';
+import { buildExport } from './export.js?v=1.4.0';
+import { zip } from './zip.js?v=1.4.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.3.0';
+} from './util.js?v=1.4.0';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -629,10 +631,27 @@ function viewSettings() {
       <p class="muted small">❄ Streak-Freeze aktiv seit ${fmtDate(set.freezeStart || d.today)}: alle 7 Streak-Tage gibt es einen Freeze (max. 2). Verpasst du einen Tag, wird automatisch einer verbraucht.
         Verfügbar: <b>${d.streak.freezes}</b> · nächster in ${d.streak.nextFreezeIn} Streak-Tag${d.streak.nextFreezeIn === 1 ? '' : 'en'}.</p></div>
 
-    <div class="card"><div class="card-head"><h2>Daten &amp; Backup</h2><span class="sub">${fmtNum(d.live.length)} Logs auf diesem Gerät${persistent() ? '' : ' · ⚠ Browser-Speicher nicht verfügbar'}</span></div>
-      <div class="row"><button class="btn" data-action="export-json">Backup (JSON)</button><button class="btn" data-action="export-csv">Export (CSV)</button>
-        <label class="btn">Backup einspielen<input type="file" id="importFile" accept=".json,application/json" hidden></label></div>
-      <p class="muted small">Deine Daten liegen auf jedem Gerät lokal, im privaten Repo <code>${esc(S.device.owner)}/${esc(S.device.repo)}</code> (mit kompletter Versionshistorie) und als Kopie in OneDrive. Einspielen führt zusammen und überschreibt nichts Neueres.</p></div>
+    <div class="card" id="sec-export"><div class="card-head"><h2>${icon('history')} Export &amp; Backup</h2><span class="sub">${fmtNum(d.live.length)} Logs · ${fmtH(d.tot.total)}${persistent() ? '' : ' · ⚠ Browser-Speicher nicht verfügbar'}</span></div>
+      <div class="export-main">
+        <div><b>Alles exportieren</b>
+          <p class="muted small" style="margin:4px 0 0">Ein ZIP mit allem, was du für einen Wechsel brauchst:</p>
+          <ul class="export-list small">
+            <li><code>logs.csv</code> alle Logs für andere Tracker, Google Sheets oder Numbers</li>
+            <li><code>logs_excel.csv</code> öffnet direkt in deutschem Excel</li>
+            <li><code>lingotrack_activity_logs.csv</code> im LingoTrack-Format</li>
+            <li><code>tage.csv</code> Minuten pro Tag und Aktivität</li>
+            <li><code>nihongo-hunter-backup.json</code> komplettes Backup inkl. Shortcuts und Quests</li>
+          </ul></div>
+        <button class="btn btn-primary btn-wide" data-action="export-all">ZIP exportieren</button>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <span class="muted small">Einzeln:</span>
+        <button class="btn btn-sm" data-action="export-one" data-file="logs.csv" data-type="text/csv">Logs (CSV)</button>
+        <button class="btn btn-sm" data-action="export-one" data-file="logs_excel.csv" data-type="text/csv">Excel (CSV)</button>
+        <button class="btn btn-sm" data-action="export-one" data-file="nihongo-hunter-backup.json" data-type="application/json">Backup (JSON)</button>
+        <span class="spacer"></span>
+        <label class="btn btn-sm">Backup einspielen<input type="file" id="importFile" accept=".json,application/json" hidden></label></div>
+      <p class="muted small">Unabhängig von dieser App liegen deine Daten als lesbare Dateien im privaten Repo <code>${esc(S.device.owner)}/${esc(S.device.repo)}</code> (mit kompletter Versionshistorie) und als Kopie in OneDrive. Einspielen führt zusammen und überschreibt nichts Neueres.</p></div>
 
     <p class="muted small" style="text-align:center">Nihongo Hunter ${VERSION} · ${esc(S.device.name)}</p>
   </div>`;
@@ -773,24 +792,39 @@ function shortcutTap(sc) {
 
 // ---- Export / import ----------------------------------------------------------------------
 
-function download(name, text, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+/** Phones get the share sheet ("In Dateien sichern"), everything else a normal download. */
+async function saveFile(name, blob) {
+  const file = new File([blob], name, { type: blob.type });
+  const phone = matchMedia('(pointer: coarse)').matches;
+  if (phone && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-function exportJSON() {
-  const data = { app: 'nihongo-hunter', v: 1, exported: new Date().toISOString(), meta: S.meta, logs: [...S.logs.values()].map(canonLog) };
-  download(`nihongo-hunter-backup-${today()}.json`, JSON.stringify(data), 'application/json');
+function exportFiles() {
+  return buildExport({ logs: [...S.logs.values()], meta: S.meta, version: VERSION });
 }
 
-function exportCSV() {
-  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = D().live.sort((a, b) => a.t - b.t).map((l) => [l.id, l.d, clock(l.t), l.a, l.m, l.n, l.md, l.src].map(q).join(','));
-  download(`nihongo-hunter-logs-${today()}.csv`, '﻿id,datum,uhrzeit,aktivitaet,minuten,notiz,medium,quelle\n' + rows.join('\n'), 'text/csv');
+async function exportAll() {
+  await saveFile(`nihongo-hunter-export-${today()}.zip`, zip(exportFiles()));
+  toast('Export erstellt');
+}
+
+async function exportOne(name, type) {
+  const f = exportFiles().find((x) => x.name === name);
+  const [base, ext] = name.split(/\.(?=[^.]+$)/);
+  await saveFile(`nihongo-hunter-${base.replace(/_/g, '-')}-${today()}.${ext}`, new Blob([f.data], { type }));
 }
 
 async function importBackup(file) {
@@ -923,8 +957,8 @@ async function onAction(el) {
       return setMeta(upsertItem('activities', { id: name, name, color: $('#newActColor').value, attr: $('#newActAttr').value, o }), `Aktivität ${name}`);
     }
     case 'act-hide': return setMeta(upsertItem('activities', { id, x: 1 }), 'Aktivität ausgeblendet');
-    case 'export-json': return exportJSON();
-    case 'export-csv': return exportCSV();
+    case 'export-all': return exportAll();
+    case 'export-one': return exportOne(el.dataset.file, el.dataset.type);
     case 'sync-now':
       if (!S.device.token) return go('settings', 'sync');
       return sync.run();

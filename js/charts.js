@@ -1,6 +1,6 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek } from './util.js?v=1.3.0';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek } from './util.js?v=1.4.0';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
