@@ -6,8 +6,8 @@
 // merges and retries. Local changes are tracked as dirty counters so edits made while
 // a request is in flight are never lost.
 
-import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=1.1.1';
-import { getKV, setKV } from './store.js?v=1.1.1';
+import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=1.2.0';
+import { getKV, setKV } from './store.js?v=1.2.0';
 
 const API = 'https://api.github.com';
 

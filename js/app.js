@@ -1,14 +1,14 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.1.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.1.1';
-import { Sync } from './sync.js?v=1.1.1';
-import * as St from './stats.js?v=1.1.1';
-import * as Hu from './hunter.js?v=1.1.1';
-import * as Ch from './charts.js?v=1.1.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.2.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.2.0';
+import { Sync } from './sync.js?v=1.2.0';
+import * as St from './stats.js?v=1.2.0';
+import * as Hu from './hunter.js?v=1.2.0';
+import * as Ch from './charts.js?v=1.2.0';
 import {
-  addDays, dayOf, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, todayStr, uid,
-} from './util.js?v=1.1.1';
+  addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
+} from './util.js?v=1.2.0';
 
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -16,7 +16,7 @@ const S = {
   logs: new Map(),
   meta: defaultMeta(),
   device: { token: '', owner: 'Hasi-hby', repo: 'nihongo-tracker-data', name: guessDevice() },
-  ui: { view: 'home', theme: 'auto', period: 'week', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150 },
+  ui: { view: 'home', theme: 'auto', period: 'week', homeRange: 'day', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150 },
   ver: 0,
 };
 let cache = { ver: -1 };
@@ -331,6 +331,49 @@ function timerCard() {
       <span class="spacer"></span><button class="btn btn-danger btn-sm" data-action="timer" data-kind="discard">Verwerfen</button></div></div>`;
 }
 
+/** Today's (or this week's) time per activity, compared with the average of the 7 days before. */
+function todayCard(d) {
+  const week = S.ui.homeRange === 'week';
+  const start = week ? startOfWeek(d.today, ws()) : d.today;
+  const by = {};
+  let total = 0, count = 0;
+  for (const day of eachDay(start, d.today)) {
+    const e = d.dm.get(day);
+    if (!e) continue;
+    total += e.total;
+    count += e.count;
+    for (const [a, m] of Object.entries(e.by)) by[a] = (by[a] || 0) + m;
+  }
+  // reference: average day (or week) over the 7 days (or 4 weeks) before
+  const refDays = week ? 28 : 7, refEnd = addDays(start, -1);
+  const refBy = {};
+  for (const day of eachDay(addDays(start, -refDays), refEnd)) {
+    const e = d.dm.get(day);
+    if (e) for (const [a, m] of Object.entries(e.by)) refBy[a] = (refBy[a] || 0) + m;
+  }
+  const refDiv = week ? 4 : 7;
+  const list = chartActs(by).filter((a) => by[a.name] > 0).sort((a, b) => by[b.name] - by[a.name]);
+  const max = Math.max(1, ...list.map((a) => by[a.name]));
+  const refTotal = Object.values(refBy).reduce((s, m) => s + m, 0) / refDiv;
+  const rows = list.map((a) => {
+    const m = by[a.name], ref = (refBy[a.name] || 0) / refDiv;
+    return `<div class="tl-row" style="--c:${a.color}">
+      <div class="tl-top"><span class="tl-name"><i></i>${esc(a.name)}</span>
+        <span class="num"><b>${fmtMin(m)}</b> <span class="muted">${Math.round((m / total) * 100)} %</span></span></div>
+      <div class="tl-bar"><i style="width:${pct(m / max)}%"></i></div>
+      <div class="tl-ref">Ø ${week ? 'Woche' : 'Tag'} zuletzt: ${fmtMin(ref)}</div></div>`;
+  }).join('');
+  const diff = refTotal > 0 ? Math.round((total / refTotal - 1) * 100) : null;
+  return `<div class="card today-card"><div class="card-head"><h2>${icon(week ? 'calendar' : 'sun')} ${week ? 'Diese Woche' : 'Heute'} nach Aktivität</h2>
+      <div class="seg"><button class="${week ? '' : 'active'}" data-action="home-range" data-r="day">Heute</button>
+        <button class="${week ? 'active' : ''}" data-action="home-range" data-r="week">Woche</button></div></div>
+    <div class="today-body">
+      <div class="today-donut">${Ch.donut(list.map((a) => ({ label: a.name, value: by[a.name], color: a.color })), { size: 176, stroke: 22, center: fmtMin(total), sub: `${count} Logs` })}
+        ${diff != null && total > 0 ? `<div class="small ${diff >= 0 ? 'up' : 'down'}" style="text-align:center">${diff >= 0 ? '+' : ''}${diff} % ggü. Ø ${week ? 'der letzten 4 Wochen' : 'der letzten 7 Tage'}</div>` : ''}</div>
+      <div class="today-list">${rows || `<div class="muted">${week ? 'Diese Woche' : 'Heute'} ist noch nichts geloggt. Tippe unten auf einen Shortcut.</div>`}</div>
+    </div></div>`;
+}
+
 function heatCard(d) {
   const year = S.ui.heatYear || +d.today.slice(0, 4);
   const firstYear = +d.firstDay.slice(0, 4);
@@ -364,6 +407,7 @@ function viewHome() {
       ${tile('Gesamt', fmtH(d.tot.total), `${fmtNum(d.tot.count)} Logs`, { ic: 'clock' })}
       ${tile('Längster Streak', `${fmtNum(s.longest)}<small>Tage</small>`, `${fmtNum(s.daysLogged)} Tage geloggt`, { ic: 'trophy' })}
     </div>
+    ${todayCard(d)}
     <div class="card"><div class="card-head"><h2>${icon('bolt')} Shortcuts</h2>
       <button class="btn btn-sm btn-ghost" data-action="goto-settings" data-anchor="shortcuts">${icon('edit', 14)} Bearbeiten</button></div>
       <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="sc" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
@@ -825,8 +869,8 @@ function applyTheme() {
 }
 
 function saveUI() {
-  const { view, theme, period } = S.ui;
-  setKV('ui', { view, theme, period });
+  const { view, theme, period, homeRange } = S.ui;
+  setKV('ui', { view, theme, period, homeRange });
 }
 
 // ---- Events --------------------------------------------------------------------------------
@@ -845,6 +889,7 @@ async function onAction(el) {
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
     case 'heat': S.ui.heatYear = (S.ui.heatYear || +today().slice(0, 4)) + +el.dataset.dir; return render();
+    case 'home-range': S.ui.homeRange = el.dataset.r; saveUI(); return render();
     case 'period': S.ui.period = el.dataset.p; S.ui.anchor = null; saveUI(); return render();
     case 'shift': S.ui.anchor = +el.dataset.dir === 0 ? null : St.shiftAnchor(S.ui.period, S.ui.anchor || today(), +el.dataset.dir); return render();
     case 'goto-settings': return go('settings', el.dataset.anchor);

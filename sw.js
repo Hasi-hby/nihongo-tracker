@@ -3,7 +3,7 @@
 // All app files are requested with ?v=<version> (see tools/bump_version.py), so the
 // cache holds exactly one consistent set per version. GitHub API calls are never touched.
 
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const CACHE = `nihongo-hunter-${VERSION}`;
 const V = `?v=${VERSION}`;
 const SHELL = [
