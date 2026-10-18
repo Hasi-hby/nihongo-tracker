@@ -8,7 +8,7 @@ import {
   addDays, dayOf, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, todayStr, uid,
 } from './util.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -228,8 +228,25 @@ function toast(msg, action = null) {
 
 // ---- Views ----------------------------------------------------------------------------
 
-function tile(k, v, s = '', cls = '') {
-  return `<div class="tile ${cls}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s}</div></div>`;
+const ICON_PATHS = {
+  flame: 'M13.5 2.5c.5 3.2 3.5 5 3.5 9.5a5 5 0 0 1-10 0c0-2.6 1.4-4.3 2.6-5.4.1 1.7.8 2.9 1.9 3.4-.4-3.1.5-5.7 2-7.5z',
+  sun: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 2.8l2.1 2.1-1.4 1.4-2.1-2.1zm13.4 13.4 2.1 2.1-1.4 1.4-2.1-2.1zM2.8 19.8l2.1-2.1 1.4 1.4-2.1 2.1zM16.2 6.4l2.1-2.1 1.4 1.4-2.1 2.1z',
+  calendar: 'M7 2h2v2h6V2h2v2h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3zm-2 8v9h14v-9zm0-2h14V6H5z',
+  clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3h2v5.2l3.5 2.1-1 1.7L11 13.4z',
+  trophy: 'M6 3h12v2h3v3a4 4 0 0 1-4 4h-.3A6 6 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A6 6 0 0 1 7.3 12H7a4 4 0 0 1-4-4V5h3zm0 4H5v1a2 2 0 0 0 1 1.7zm12 0v2.7A2 2 0 0 0 19 8V7z',
+  bolt: 'M13 2 4 14h6l-1 8 9-12h-6z',
+  timer: 'M9 1h6v2H9zm3 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm-1 2h2v5h-2z',
+  target: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
+  grid: 'M3 3h5v5H3zm6.5 0h5v5h-5zM16 3h5v5h-5zM3 9.5h5v5H3zm6.5 0h5v5h-5zm6.5 0h5v5h-5zM3 16h5v5H3zm6.5 0h5v5h-5zm6.5 0h5v5h-5z',
+  history: 'M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.05 4.95l-1.41 1.41A9 9 0 1 0 13 3zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z',
+  plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
+  edit: 'M4 17.25V20h2.75L17.8 8.94l-2.75-2.75zM20.7 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75z',
+};
+const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
+
+function tile(k, v, s = '', { cls = '', ic = 'clock' } = {}) {
+  return `<div class="tile ${cls}"><div class="tile-top"><span class="k">${k}</span><span class="tile-ic">${icon(ic, 16)}</span></div>
+    <div class="v num">${v}</div><div class="s">${s}</div></div>`;
 }
 
 function equippedTitle(d) {
@@ -239,14 +256,15 @@ function equippedTitle(d) {
 
 function hunterCard(d) {
   const r = d.rank, L = d.level, title = equippedTitle(d);
-  return `<button class="card hunter-card" data-view="hunter" style="text-align:left;width:100%">
-    <div class="emblem" style="--rank:${r.rank.color}">${r.rank.id}</div>
-    <div class="hunter-main">
-      <div class="hunter-name"><h1>${esc(settings().name || 'Hunter')}</h1><span class="lvl">Lv. ${L.level}</span>
-        ${title ? `<span class="title-chip">${title.icon} ${esc(title.name)}</span>` : ''}</div>
-      <div class="bar"><i style="width:${pct(L.progress)}%"></i></div>
-      <div class="row small muted"><span>${esc(r.rank.name)}${r.next ? ` · ${esc(r.next.name)} in ${fmtH(r.toNext * 60)}` : ''}</span>
-        <span class="spacer"></span><span>Lv. ${L.level + 1} in ${fmtH(L.toNext * 60)}</span></div>
+  return `<button class="hero" data-view="hunter" style="--rank:${r.rank.color}">
+    <div class="hero-emblem"><div class="emblem big">${r.rank.id}</div><span class="hero-rank">${esc(r.rank.name)}</span></div>
+    <div class="hero-main">
+      <div class="hero-label">Hunter${title ? ` · <span class="hero-title">${title.icon} ${esc(title.name)}</span>` : ''}</div>
+      <div class="hero-name"><h1>${esc(settings().name || 'Hunter')}</h1><span class="lvl">LV. ${L.level}</span></div>
+      <div class="xp"><div class="xp-bar"><i style="width:${pct(L.progress)}%"></i></div>
+        <div class="xp-meta num"><span>XP ${fmtNum(d.tot.total)} / ${fmtNum(L.next * 60)}</span><span>Lv. ${L.level + 1} in ${fmtH(L.toNext * 60)}</span></div></div>
+      ${r.next ? `<div class="hero-next">Nächster Rang: <b>${esc(r.next.name)}</b> in ${fmtH(r.toNext * 60)}
+        <span class="mini-bar"><i style="width:${pct(r.progress)}%"></i></span></div>` : ''}
     </div></button>`;
 }
 
@@ -256,48 +274,56 @@ function logItem(l, { date = true } = {}) {
     <div class="what"><div><b>${esc(l.a)}</b> · <span class="num">${fmtMin(l.m)}</span>${l.md ? ` · ${esc(l.md)}` : ''}</div>
       ${l.n ? `<div class="note">${esc(l.n)}</div>` : ''}</div>
     <div class="right"><span class="muted small">${date ? relDay(l.d) + ' · ' : ''}${clock(l.t)}</span>
-      <button class="link" data-action="edit-log" data-id="${esc(l.id)}" aria-label="Bearbeiten">✎</button></div></div>`;
+      <button class="link" data-action="edit-log" data-id="${esc(l.id)}" aria-label="Bearbeiten">${icon('edit', 16)}</button></div></div>`;
 }
 
+const scopeOf = (q) => St.QUEST_SCOPES.find((s) => s.id === q.scope) || St.QUEST_SCOPES[0];
+
 function questLabel(q) {
-  return `${esc(q.a || 'Gesamt')}: ${fmtMin(q.m)}${q.scope === 'week' ? ' / Woche' : ''}`;
+  return q.name ? esc(q.name) : `${esc(q.a || 'Gesamt')}: ${fmtMin(q.m)}${scopeOf(q).per}`;
 }
+
+const QUEST_TITLES = { day: 'Daily Quest', week: 'Weekly Quest', month: 'Monthly Quest' };
 
 function questsPanel(d) {
   const qs = quests();
-  const daily = qs.filter((q) => q.scope === 'day'), weekly = qs.filter((q) => q.scope === 'week');
   const row = (q) => {
     const p = St.questProgress(q, d.dm, d.today, ws());
-    return `<div class="quest ${p.complete ? 'done' : ''}"><div class="quest-top"><span>${questLabel(q)}</span>
-      <span class="num">${fmtMin(Math.min(p.done, 99999))} / ${fmtMin(p.target)}</span></div>
-      <div class="bar ${p.complete ? 'green' : ''}"><i style="width:${pct(p.pct)}%"></i></div></div>`;
+    const left = p.target - p.done;
+    return `<button class="quest ${p.complete ? 'done' : ''}" data-action="quest-edit" data-id="${esc(q.id)}">
+      <div class="quest-top"><span class="quest-name">${questLabel(q)}</span>
+        <span class="num quest-amt">${fmtMin(p.done)} / ${fmtMin(p.target)}</span></div>
+      <div class="bar ${p.complete ? 'green' : ''}"><i style="width:${pct(p.pct)}%"></i></div>
+      <div class="quest-sub">${p.complete ? 'Abgeschlossen' : `noch ${fmtMin(left)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
   };
+  const head = (title) => `<div class="sys-head"><div class="sys-title">${title}</div>
+    <button class="btn btn-sm btn-system" data-action="quest-new">${icon('plus', 14)} Quest</button></div>`;
   if (!qs.length) {
-    return `<div class="sys"><div class="sys-title">Daily Quest</div>
-      <p class="muted small" style="margin:0 0 10px">Noch keine Quests. Das System schlägt vor:</p>
+    return `<div class="sys">${head('Quests')}
+      <p class="muted small" style="margin:0 0 10px">Lege deine eigenen Ziele an, für den Tag, die Woche oder den Monat. Oder nimm einen Vorschlag:</p>
       <div class="row">
-        <button class="btn btn-sm btn-system" data-action="quest-suggest" data-scope="day" data-a="" data-m="180">Täglich 3 h gesamt</button>
-        <button class="btn btn-sm btn-system" data-action="quest-suggest" data-scope="day" data-a="Anki" data-m="15">Anki 15 min / Tag</button>
-        <button class="btn btn-sm btn-system" data-action="quest-suggest" data-scope="week" data-a="" data-m="1500">25 h / Woche</button>
+        <button class="btn btn-sm" data-action="quest-suggest" data-scope="day" data-a="" data-m="180">Täglich 3 h gesamt</button>
+        <button class="btn btn-sm" data-action="quest-suggest" data-scope="day" data-a="Anki" data-m="15">Anki 15 min / Tag</button>
+        <button class="btn btn-sm" data-action="quest-suggest" data-scope="week" data-a="" data-m="1500">25 h / Woche</button>
       </div></div>`;
   }
+  const groups = St.QUEST_SCOPES.map((s) => [s.id, qs.filter((q) => q.scope === s.id)]).filter(([, l]) => l.length);
   return `<div class="sys">
-    ${daily.length ? `<div class="sys-title">Daily Quest</div>${daily.map(row).join('')}` : ''}
-    ${weekly.length ? `<div class="sys-title" style="margin-top:${daily.length ? 16 : 0}px">Weekly Quest</div>${weekly.map(row).join('')}` : ''}
-    <div class="row small muted" style="margin-top:10px">
-      ${daily.length ? `<span>Quests erfüllt: <b class="num">${d.qh.streak}</b> Tage in Folge · Bestwert ${d.qh.best}</span>` : ''}
-      <span class="spacer"></span><button class="btn btn-sm" data-action="goto-settings" data-anchor="quests">Verwalten</button></div></div>`;
+    ${groups.map(([scope, list], i) => `${i ? `<div class="sys-title" style="margin-top:14px">${QUEST_TITLES[scope]}</div>` : head(QUEST_TITLES[scope])}
+      ${list.map(row).join('')}`).join('')}
+    ${qs.some((q) => q.scope === 'day') ? `<div class="quest-streak">${icon('flame', 14)} Daily Quests erfüllt: <b class="num">${d.qh.streak}</b> Tage in Folge · Bestwert ${d.qh.best}</div>` : ''}
+  </div>`;
 }
 
 function timerCard() {
   const tm = timer();
   if (tm.state === 'idle' || !tm.state) {
-    return `<div class="card"><div class="card-head"><h2>⏱ Timer</h2><span class="sub">läuft auf allen Geräten mit</span></div>
+    return `<div class="card"><div class="card-head"><h2>${icon('timer')} Timer</h2><span class="sub">läuft auf allen Geräten mit</span></div>
       <div class="row"><select id="timerAct" style="flex:1;min-width:160px">${acts().map((a) => `<option>${esc(a.name)}</option>`).join('')}</select>
       <button class="btn btn-primary" data-action="timer" data-kind="start">Start</button></div></div>`;
   }
   const running = tm.state === 'running';
-  return `<div class="card"><div class="card-head"><h2>⏱ Timer</h2><span class="sub">${esc(tm.a)} · seit ${clock(tm.begin || Date.now())}</span></div>
+  return `<div class="card timer-live"><div class="card-head"><h2>${icon('timer')} Timer</h2><span class="sub">${esc(tm.a)} · seit ${clock(tm.begin || Date.now())}</span></div>
     <div id="timerClock" class="timer-clock ${running ? 'running' : ''}">${fmtClock(timerElapsed(tm))}</div>
     <div class="row" style="margin-top:12px">
       ${running ? '<button class="btn" data-action="timer" data-kind="pause">Pause</button>' : '<button class="btn" data-action="timer" data-kind="resume">Weiter</button>'}
@@ -308,7 +334,7 @@ function timerCard() {
 function heatCard(d) {
   const year = S.ui.heatYear || +d.today.slice(0, 4);
   const firstYear = +d.firstDay.slice(0, 4);
-  return `<div class="card"><div class="card-head"><h2>Tracking-Heatmap</h2>
+  return `<div class="card"><div class="card-head"><h2>${icon('grid')} Tracking-Heatmap</h2>
       <div class="row"><button class="btn btn-sm" data-action="heat" data-dir="-1" ${year <= firstYear ? 'disabled' : ''}>←</button>
       <b class="num">${year}</b><button class="btn btn-sm" data-action="heat" data-dir="1" ${year >= +d.today.slice(0, 4) ? 'disabled' : ''}>→</button></div></div>
     <div class="scroll-x" id="heatScroll">${Ch.heatmap(d.dm, year, { today: d.today, frozen: d.streak.frozen })}</div>
@@ -329,23 +355,23 @@ function viewHome() {
     ${!S.device.token && !d.live.length ? `<div class="sys"><div class="sys-title">Willkommen, Hunter</div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
       <button class="btn btn-system" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
-    ${s.atRisk ? `<div class="alert"><span style="font-size:1.3rem">🔥</span><div><b>Streak in Gefahr.</b> Heute ist noch nichts geloggt.
+    ${s.atRisk ? `<div class="alert"><span class="alert-ic">${icon('flame', 22)}</span><div><b>Streak in Gefahr.</b> Heute ist noch nichts geloggt.
       ${s.freezes ? `${s.freezes} Freeze${s.freezes > 1 ? 's' : ''} auf Vorrat würde${s.freezes > 1 ? 'n' : ''} dich retten.` : 'Kein Freeze auf Vorrat.'}</div></div>` : ''}
     <div class="tiles">
-      ${tile('Aktueller Streak', `${fmtNum(s.current)}<small>Tage</small>`, `${record ? '🏆 Rekord' : `Rekord ${fmtNum(s.longest)}`} · ❄ ${s.freezes}`, 'streak')}
-      ${tile('Heute', fmtMin(tday?.total || 0), `${tday?.count || 0} Logs`)}
-      ${tile('Diese Woche', fmtH(wc.cur), wcTxt)}
-      ${tile('Gesamt', fmtH(d.tot.total), `${fmtNum(d.tot.count)} Logs`)}
-      ${tile('Längster Streak', `${fmtNum(s.longest)}<small>Tage</small>`, `${fmtNum(s.daysLogged)} Tage geloggt`)}
+      ${tile('Streak', `${fmtNum(s.current)}<small>Tage</small>`, `${record ? 'Rekord' : `Rekord ${fmtNum(s.longest)}`} · ❄ ${s.freezes} Freeze${s.freezes === 1 ? '' : 's'}`, { cls: 'tile-streak', ic: 'flame' })}
+      ${tile('Heute', fmtMin(tday?.total || 0), `${tday?.count || 0} Logs`, { ic: 'sun' })}
+      ${tile('Diese Woche', fmtH(wc.cur), wcTxt, { ic: 'calendar' })}
+      ${tile('Gesamt', fmtH(d.tot.total), `${fmtNum(d.tot.count)} Logs`, { ic: 'clock' })}
+      ${tile('Längster Streak', `${fmtNum(s.longest)}<small>Tage</small>`, `${fmtNum(s.daysLogged)} Tage geloggt`, { ic: 'trophy' })}
     </div>
-    <div class="card"><div class="card-head"><h2>⚡ Shortcuts</h2>
-      <button class="btn btn-sm" data-action="goto-settings" data-anchor="shortcuts">Bearbeiten</button></div>
-      <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="chip" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
-        <span class="sw"></span>${esc(sc.a)}<span class="m">${sc.m} min</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}</button>`).join('')}
-        <button class="chip" data-action="new-log"><span class="m">+ Aktivität</span><kbd>N</kbd></button></div></div>
+    <div class="card"><div class="card-head"><h2>${icon('bolt')} Shortcuts</h2>
+      <button class="btn btn-sm btn-ghost" data-action="goto-settings" data-anchor="shortcuts">${icon('edit', 14)} Bearbeiten</button></div>
+      <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="sc" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
+        <b>${esc(sc.a)}</b><span class="num">${fmtMin(sc.m)}</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}</button>`).join('')}
+        <button class="sc sc-add" data-action="new-log"><b>${icon('plus', 16)} Aktivität</b><span>frei eintragen</span><kbd>N</kbd></button></div></div>
     <div class="cols-2">${timerCard()}${questsPanel(d)}</div>
     ${heatCard(d)}
-    <div class="card"><div class="card-head"><h2>Letzte Aktivität</h2><button class="btn btn-sm" data-view="logs">Alle Logs →</button></div>
+    <div class="card"><div class="card-head"><h2>${icon('history')} Letzte Aktivität</h2><button class="btn btn-sm btn-ghost" data-view="logs">Alle Logs →</button></div>
       <div class="list">${recent.length ? recent.map((l) => logItem(l)).join('') : '<p class="muted">Noch keine Logs.</p>'}</div></div>
   </div>`;
 }
@@ -518,7 +544,9 @@ function viewSettings() {
       </ol><p class="muted small">Ein Token pro Gerät: Geht ein Handy verloren, löschst du nur dessen Token auf GitHub.</p></details>
     </div>
 
-    <div class="card" id="sec-shortcuts"><div class="card-head"><h2>Shortcuts</h2><span class="sub">Ein Tipp = sofort geloggt · Tasten 1–9</span></div>
+    <div class="card" id="sec-shortcuts"><div class="card-head"><h2>Shortcuts</h2><span class="sub">Standard-Dauer pro Shortcut · Tasten 1–9</span></div>
+      <label class="toggle"><input type="checkbox" data-change="set-instant" ${set.instantShortcuts ? 'checked' : ''}>
+        <span><b>Sofort loggen</b><br><span class="muted small">Aus: Ein Tipp öffnet den Schnell-Log, dort passt du die tatsächliche Dauer an. An: Es wird direkt die Standard-Dauer geloggt.</span></span></label>
       <div class="list">${shortcuts().map((sc, i, arr) => `<div class="item" style="grid-template-columns:minmax(0,1fr) 76px auto">
         <select data-change="sc-a" data-id="${esc(sc.id)}">${ACT_OPTS(sc.a)}</select>
         <input type="number" min="1" data-change="sc-m" data-id="${esc(sc.id)}" value="${sc.m}" aria-label="Minuten">
@@ -527,15 +555,12 @@ function viewSettings() {
           <button class="link" data-action="sc-del" data-id="${esc(sc.id)}" aria-label="Löschen">✕</button></div></div>`).join('')}</div>
       <button class="btn btn-sm" data-action="sc-add" style="margin-top:10px">+ Shortcut</button></div>
 
-    <div class="card" id="sec-quests"><div class="card-head"><h2>Quests (Ziele)</h2><span class="sub">Daily &amp; Weekly Quests im System-Fenster</span></div>
-      <div class="list">${quests().map((q) => `<div class="item" style="grid-template-columns:1fr auto"><div><b>${questLabel(q)}</b>
-        <div class="note">${q.scope === 'week' ? 'Wöchentlich' : 'Täglich'} · seit ${fmtDate(q.since || d.today)}</div></div>
-        <div class="right"><button class="link" data-action="quest-del" data-id="${esc(q.id)}" aria-label="Löschen">✕</button></div></div>`).join('') || '<p class="muted">Noch keine Quests.</p>'}</div>
-      <div class="form-grid form-inline q-form">
-        <label class="field"><span>Art</span><select id="qScope"><option value="day">Täglich</option><option value="week">Wöchentlich</option></select></label>
-        <label class="field"><span>Aktivität</span><select id="qAct">${ACT_OPTS('', true)}</select></label>
-        <label class="field"><span>Ziel</span><input type="text" id="qMin" placeholder="z. B. 2:00" inputmode="decimal"></label>
-        <button class="btn btn-system" data-action="quest-add">Hinzufügen</button></div></div>
+    <div class="card" id="sec-quests"><div class="card-head"><h2>Quests (Ziele)</h2>
+      <button class="btn btn-sm btn-system" data-action="quest-new">${icon('plus', 14)} Neue Quest</button></div>
+      <div class="list">${quests().map((q) => `<div class="item" style="grid-template-columns:minmax(0,1fr) auto"><div class="what"><b>${questLabel(q)}</b>
+        <div class="note">${scopeOf(q).label} · ${esc(q.a || 'Gesamt')} · ${fmtMin(q.m)} · seit ${fmtDate(q.since || d.today)}</div></div>
+        <div class="right"><button class="link" data-action="quest-edit" data-id="${esc(q.id)}" aria-label="Bearbeiten">${icon('edit', 16)}</button></div></div>`).join('')
+        || '<p class="muted">Noch keine Quests. Lege mit „Neue Quest“ dein erstes Ziel an.</p>'}</div></div>
 
     <div class="card" id="sec-acts"><div class="card-head"><h2>Aktivitäten</h2><span class="sub">Farbe und Attribut fürs Status-Fenster</span></div>
       <div class="list">${acts().map((a) => `<div class="item" style="grid-template-columns:auto minmax(0,1fr) minmax(0,140px) auto">
@@ -569,31 +594,50 @@ function viewSettings() {
 
 function openLogModal(id = null, preset = {}) {
   const l = id ? S.logs.get(id) : null;
-  const now = new Date();
-  const dflt = l || { a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: today(), t: now.getTime() };
+  const quick = !l && !!preset.quick;
+  const dflt = l || { a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: today(), t: Date.now() };
   const names = acts().map((a) => a.name);
   if (dflt.a && !names.includes(dflt.a)) names.push(dflt.a);
   const media = [...new Set(D().live.map((x) => x.md).filter(Boolean))].slice(0, 200);
+  const title = l ? 'Log bearbeiten' : quick ? 'Wie lange wirklich?' : 'Aktivität loggen';
   const dlg = $('#modal');
-  dlg.className = '';
-  dlg.innerHTML = `<form class="modal-body" id="logForm">
-    <div class="modal-head"><h2>${l ? 'Log bearbeiten' : 'Aktivität loggen'}</h2><button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
-    <div class="form-grid">
-      <label class="field full"><span>Aktivität</span><select name="a">${names.map((n) => `<option ${n === dflt.a ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-      <label class="field full"><span>Dauer</span><input type="text" name="m" inputmode="decimal" placeholder="z. B. 45 oder 1:30" value="${dflt.m || ''}" required></label>
-      <div class="quick-min full">${[10, 15, 20, 30, 45, 60, 90, 120].map((m) => `<button type="button" class="btn btn-sm" data-min="${m}">${fmtMin(m)}</button>`).join('')}</div>
-      <label class="field"><span>Tag</span><input type="date" name="d" value="${dflt.d}" max="${today()}" required></label>
-      <label class="field"><span>Uhrzeit</span><input type="time" name="time" value="${clock(dflt.t)}"></label>
-      <label class="field full"><span>Notiz</span><input type="text" name="n" value="${esc(l?.n || '')}" placeholder="optional"></label>
-      <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(l?.md || '')}" placeholder="optional, z. B. Solo Leveling S2"></label>
-      <datalist id="mediaList">${media.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
-    </div>
+  dlg.className = 'sheet';
+  dlg.innerHTML = `<form class="modal-body" id="logForm" style="--c:${colorOf(dflt.a)}">
+    <div class="modal-head"><div><h2>${title}</h2>${quick ? `<div class="muted small">Shortcut · Standard ${fmtMin(preset.m)}</div>` : ''}</div>
+      <button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
+    <label class="field"><span>Aktivität</span><select name="a" class="act-select">${names.map((n) => `<option ${n === dflt.a ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+    <div class="field"><span>Dauer</span>
+      <div class="stepper"><button type="button" class="btn" data-step="-5" aria-label="5 Minuten weniger">−5</button>
+        <input type="text" name="m" inputmode="decimal" autocomplete="off" placeholder="45 oder 1:30" value="${dflt.m || ''}" required>
+        <button type="button" class="btn" data-step="5" aria-label="5 Minuten mehr">+5</button></div>
+      <div class="quick-min">${[10, 15, 20, 30, 45, 60, 90, 120].map((m) => `<button type="button" class="btn btn-sm" data-min="${m}">${fmtMin(m)}</button>`).join('')}</div>
+      <span class="muted small" id="durHint"></span></div>
+    <details class="more" ${quick ? '' : 'open'}><summary>Tag, Uhrzeit, Notiz, Medium</summary>
+      <div class="form-grid">
+        <label class="field"><span>Tag</span><input type="date" name="d" value="${dflt.d}" max="${today()}" required></label>
+        <label class="field"><span>Uhrzeit</span><input type="time" name="time" value="${clock(dflt.t)}"></label>
+        <label class="field full"><span>Notiz</span><input type="text" name="n" value="${esc(l?.n || '')}" placeholder="optional"></label>
+        <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(l?.md || '')}" placeholder="optional, z. B. Solo Leveling S2"></label>
+        <datalist id="mediaList">${media.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      </div></details>
     <div class="modal-foot">${l ? '<button type="button" class="btn btn-danger" data-del>Löschen</button>' : ''}<span class="spacer"></span>
-      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-primary">Speichern</button></div>
+      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-primary btn-wide">${l ? 'Speichern' : 'Loggen'}</button></div>
   </form>`;
   const form = $('#logForm');
+  const hint = () => {
+    const m = parseDuration(form.m.value);
+    $('#durHint').textContent = m > 0 && !/^\d+$/.test(form.m.value.trim()) ? `= ${fmtMin(m)}` : '';
+  };
   form.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dlg.close(); });
-  form.querySelectorAll('[data-min]').forEach((b) => { b.onclick = () => { form.m.value = b.dataset.min; }; });
+  form.querySelectorAll('[data-min]').forEach((b) => { b.onclick = () => { form.m.value = b.dataset.min; hint(); }; });
+  form.querySelectorAll('[data-step]').forEach((b) => {
+    b.onclick = () => {
+      const cur = parseDuration(form.m.value) || 0;
+      form.m.value = Math.max(1, Math.round(cur + +b.dataset.step));
+      hint();
+    };
+  });
+  form.a.onchange = () => form.style.setProperty('--c', colorOf(form.a.value));
   if (l) form.querySelector('[data-del]').onclick = () => { dlg.close(); deleteLog(l.id); };
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -611,12 +655,72 @@ function openLogModal(id = null, preset = {}) {
       render();
       toast('Log gespeichert');
     } else {
-      await addLog(fields);
+      await addLog({ ...fields, src: preset.src || 'manual' });
     }
   };
-  form.m.oninput = () => form.m.setCustomValidity('');
+  form.m.oninput = () => { form.m.setCustomValidity(''); hint(); };
+  form.m.onfocus = () => form.m.select();
   dlg.showModal();
-  if (!l) form.m.focus();
+  if (!l) { form.m.focus(); form.m.select(); }
+}
+
+function openQuestModal(id = null) {
+  const q = id ? quests().find((x) => x.id === id) : null;
+  const cur = q || { scope: 'day', a: '', m: '', name: '' };
+  const chips = { day: [15, 30, 60, 120, 180, 240], week: [300, 600, 1200, 1500, 1800, 2400], month: [1200, 3000, 6000, 9000] };
+  const dlg = $('#modal');
+  dlg.className = 'sheet';
+  dlg.innerHTML = `<form class="modal-body" id="questForm">
+    <div class="modal-head"><div><div class="sys-title" style="margin:0 0 4px">${q ? 'Quest bearbeiten' : 'Neue Quest'}</div>
+      <div class="muted small">Ein eigenes Ziel für Tag, Woche oder Monat</div></div>
+      <button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
+    <div class="field"><span>Zeitraum</span><div class="seg seg-full">${St.QUEST_SCOPES.map((s) => `<button type="button" data-scope="${s.id}" class="${s.id === cur.scope ? 'active' : ''}">${s.label}</button>`).join('')}</div></div>
+    <label class="field"><span>Aktivität</span><select name="a">${ACT_OPTS(cur.a, true)}</select></label>
+    <div class="field"><span>Ziel</span><input type="text" name="m" inputmode="decimal" autocomplete="off" placeholder="z. B. 2:00, 90 oder 25h" value="${cur.m ? (cur.m % 60 ? cur.m : `${cur.m / 60}h`) : ''}" required>
+      <div class="quick-min" id="qChips"></div><span class="muted small" id="qHint"></span></div>
+    <label class="field"><span>Name (optional)</span><input type="text" name="qname" maxlength="60" value="${esc(cur.name || '')}" placeholder="z. B. Morgen-Anki oder Podcast-Woche"></label>
+    <div class="modal-foot">${q ? '<button type="button" class="btn btn-danger" data-del>Löschen</button>' : ''}<span class="spacer"></span>
+      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-system btn-wide">${q ? 'Speichern' : 'Quest annehmen'}</button></div>
+  </form>`;
+  const form = $('#questForm');
+  let scope = cur.scope;
+  const hint = () => {
+    const m = parseDuration(form.m.value);
+    $('#qHint').textContent = m > 0 ? `= ${fmtMin(m)}${St.QUEST_SCOPES.find((s) => s.id === scope).per || ' pro Tag'}` : '';
+  };
+  const drawChips = () => {
+    $('#qChips').innerHTML = chips[scope].map((m) => `<button type="button" class="btn btn-sm" data-m="${m}">${fmtMin(m)}</button>`).join('');
+    $('#qChips').querySelectorAll('[data-m]').forEach((b) => { b.onclick = () => { form.m.value = b.dataset.m % 60 ? b.dataset.m : `${b.dataset.m / 60}h`; hint(); }; });
+  };
+  form.querySelectorAll('[data-scope]').forEach((b) => {
+    b.onclick = () => {
+      scope = b.dataset.scope;
+      form.querySelectorAll('[data-scope]').forEach((x) => x.classList.toggle('active', x === b));
+      drawChips();
+      hint();
+    };
+  });
+  form.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dlg.close(); });
+  if (q) form.querySelector('[data-del]').onclick = () => { dlg.close(); setMeta(upsertItem('quests', { id: q.id, x: 1 }), 'Quest entfernt'); toast('Quest gelöscht'); };
+  form.m.oninput = () => { form.m.setCustomValidity(''); hint(); };
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const m = parseDuration(form.m.value);
+    if (!(m > 0)) { form.m.setCustomValidity('Bitte ein Ziel eingeben, z. B. 2:00 oder 30'); form.m.reportValidity(); return; }
+    dlg.close();
+    setMeta(upsertItem('quests', {
+      id: q?.id || uid(), scope, a: form.a.value, m: Math.round(m), name: form.elements.qname.value.trim(), since: q?.since || today(),
+    }), q ? 'Quest geändert' : 'Neue Quest');
+    toast(q ? 'Quest gespeichert' : 'Quest angenommen');
+  };
+  drawChips();
+  hint();
+  dlg.showModal();
+}
+
+function shortcutTap(sc) {
+  if (settings().instantShortcuts) return addLog({ a: sc.a, m: sc.m, src: 'shortcut' });
+  return openLogModal(null, { a: sc.a, m: sc.m, src: 'shortcut', quick: true });
 }
 
 // ---- Export / import ----------------------------------------------------------------------
@@ -734,9 +838,11 @@ async function onAction(el) {
     case 'edit-log': return openLogModal(id);
     case 'shortcut': {
       const sc = shortcuts().find((x) => x.id === id);
-      if (sc) await addLog({ a: sc.a, m: sc.m, src: 'shortcut' });
+      if (sc) await shortcutTap(sc);
       return;
     }
+    case 'quest-new': return openQuestModal();
+    case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
     case 'heat': S.ui.heatYear = (S.ui.heatYear || +today().slice(0, 4)) + +el.dataset.dir; return render();
     case 'period': S.ui.period = el.dataset.p; S.ui.anchor = null; saveUI(); return render();
@@ -749,12 +855,6 @@ async function onAction(el) {
     case 'set-theme': S.ui.theme = el.dataset.theme; applyTheme(); saveUI(); return render();
     case 'quest-suggest':
       return setMeta(upsertItem('quests', { id: uid(), scope: el.dataset.scope, a: el.dataset.a, m: +el.dataset.m, since: today() }), 'Quest');
-    case 'quest-add': {
-      const m = parseDuration($('#qMin').value);
-      if (!(m > 0)) { toast('Bitte ein Ziel eingeben, z. B. 2:00 oder 30'); return; }
-      return setMeta(upsertItem('quests', { id: uid(), scope: $('#qScope').value, a: $('#qAct').value, m, since: today() }), 'Quest');
-    }
-    case 'quest-del': return setMeta(upsertItem('quests', { id, x: 1 }), 'Quest entfernt');
     case 'sc-add': {
       const o = Math.max(-1, ...shortcuts().map((s) => s.o ?? 0)) + 1;
       return setMeta(upsertItem('shortcuts', { id: uid(), a: acts()[0]?.name || 'Immersion', m: 15, o }), 'Shortcut');
@@ -841,6 +941,7 @@ function bindEvents() {
     if (key === 'act-attr') setMeta(upsertItem('activities', { id, attr: el.value }), 'Attribut');
     if (key === 'set-name') setSettings({ name: el.value.trim() }, 'Name');
     if (key === 'set-dayend') setSettings({ dayEnd: +el.value }, 'Tagesende');
+    if (key === 'set-instant') setSettings({ instantShortcuts: el.checked }, 'Shortcut-Modus');
   });
 
   document.addEventListener('input', (e) => {
@@ -856,7 +957,7 @@ function bindEvents() {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
     if (/^[1-9]$/.test(e.key)) {
       const sc = shortcuts()[+e.key - 1];
-      if (sc) { e.preventDefault(); addLog({ a: sc.a, m: sc.m, src: 'shortcut' }); }
+      if (sc) { e.preventDefault(); shortcutTap(sc); }
     } else if (e.key === 'n' || e.key === 'N') {
       e.preventDefault();
       openLogModal();

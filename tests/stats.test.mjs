@@ -69,6 +69,9 @@ test('quests: daily progress and cleared-day history', () => {
   const q = { id: 'q', scope: 'day', a: 'Anki', m: 15, since: '2026-10-10' };
   const dm = dayMap([...logsOn(['2026-10-10', '2026-10-11'], 15, 'Anki'), ...logsOn(['2026-10-12'], 60)]);
   assert.equal(questProgress(q, dm, '2026-10-11').complete, true);
+  const month = { id: 'm', scope: 'month', a: '', m: 120, since: '2026-10-01' };
+  assert.equal(questProgress(month, dm, '2026-10-12').done, 90);
+  assert.equal(questProgress({ ...month, scope: 'week' }, dm, '2026-10-12').done, 60);
   const h = questHistory([q], dm, '2026-10-12');
   assert.equal(h.best, 2);
   assert.equal(h.hist.get('2026-10-12'), false);

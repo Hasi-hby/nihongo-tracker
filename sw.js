@@ -2,7 +2,7 @@
 // cached app shell when offline or when the network takes longer than 3 s.
 // GitHub API calls are never touched.
 
-const CACHE = 'nihongo-hunter-v1';
+const CACHE = 'nihongo-hunter-v2';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/merge.js', 'js/sync.js', 'js/stats.js', 'js/hunter.js', 'js/charts.js', 'js/util.js',

@@ -199,8 +199,14 @@ export function forecast(today, curMin, targetMin, perDay) {
 
 const questAmount = (q, e) => (e ? (q.a ? e.by[q.a] || 0 : e.total) : 0);
 
+export const QUEST_SCOPES = [
+  { id: 'day', label: 'Täglich', per: '' },
+  { id: 'week', label: 'Wöchentlich', per: ' / Woche' },
+  { id: 'month', label: 'Monatlich', per: ' / Monat' },
+];
+
 export function questProgress(q, dm, today, ws = 1) {
-  const s = q.scope === 'week' ? startOfWeek(today, ws) : today;
+  const s = q.scope === 'week' ? startOfWeek(today, ws) : q.scope === 'month' ? startOfMonth(today) : today;
   let done = 0;
   for (const d of eachDay(s, today)) done += questAmount(q, dm.get(d));
   return { done, target: q.m, pct: Math.min(1, done / q.m), complete: done >= q.m };
