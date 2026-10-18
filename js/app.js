@@ -1,14 +1,15 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.2.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.2.1';
-import { Sync } from './sync.js?v=1.2.1';
-import * as St from './stats.js?v=1.2.1';
-import * as Hu from './hunter.js?v=1.2.1';
-import * as Ch from './charts.js?v=1.2.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.3.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.3.0';
+import { Sync } from './sync.js?v=1.3.0';
+import * as St from './stats.js?v=1.3.0';
+import * as Hu from './hunter.js?v=1.3.0';
+import * as Ch from './charts.js?v=1.3.0';
+import { rankBadge } from './badge.js?v=1.3.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.2.1';
+} from './util.js?v=1.3.0';
 
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -257,7 +258,7 @@ function equippedTitle(d) {
 function hunterCard(d) {
   const r = d.rank, L = d.level, title = equippedTitle(d);
   return `<button class="hero" data-view="hunter" style="--rank:${r.rank.color}">
-    <div class="hero-emblem"><div class="emblem big">${r.rank.id}</div><span class="hero-rank">${esc(r.rank.name)}</span></div>
+    <div class="hero-emblem">${rankBadge(r.rank, r.idx, { size: 116 })}<span class="hero-rank">${esc(r.rank.name)}</span></div>
     <div class="hero-main">
       <div class="hero-label">Hunter${title ? ` · <span class="hero-title">${title.icon} ${esc(title.name)}</span>` : ''}</div>
       <div class="hero-name"><h1>${esc(settings().name || 'Hunter')}</h1><span class="lvl">LV. ${L.level}</span></div>
@@ -490,7 +491,7 @@ function viewHunter() {
   return `<div class="grid">
     <div class="cols-2">
       <div class="sys"><div class="sys-title">Status</div>
-        <div class="hunter-card" style="margin-bottom:12px"><div class="emblem" style="--rank:${r.rank.color}">${r.rank.id}</div>
+        <div class="hunter-card" style="margin-bottom:12px">${rankBadge(r.rank, r.idx, { size: 88 })}
           <div class="hunter-main"><div class="hunter-name"><h1>${esc(set.name || 'Hunter')}</h1><span class="lvl">Lv. ${L.level}</span></div>
           <div class="muted small">${esc(r.rank.name)}${title ? ` · Titel: ${title.icon} ${esc(title.name)}` : ''}</div>
           <div class="bar"><i style="width:${pct(L.progress)}%"></i></div>
@@ -504,7 +505,7 @@ function viewHunter() {
           const reached = d.hours >= x.h;
           const when = reached ? (x.h ? reachedDate(d.dm, x.h * 60) : d.firstDay) : null;
           const f = reached ? null : fc(x.h * 60);
-          return `<div class="rank-row ${reached ? 'reached' : ''}"><div class="emblem small" style="--rank:${x.color}">${x.id}</div>
+          return `<div class="rank-row ${reached ? 'reached' : ''} ${i === r.idx ? 'current' : ''}">${rankBadge(x, i, { size: 46, animated: i === r.idx })}
             <div><b>${esc(x.name)}</b>${i === r.idx ? ' <span class="title-chip">aktuell</span>' : ''}<div class="muted small">ab ${fmtNum(x.h)} h</div></div>
             <div class="small muted" style="text-align:right">${reached ? `seit ${fmtDate(when)}` : `noch ${fmtH((x.h - d.hours) * 60)}${f?.date ? `<br>~ ${fmtDate(f.date)}` : ''}`}</div></div>`;
         }).join('')}</div></div>
