@@ -1,14 +1,14 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js';
-import { Sync } from './sync.js';
-import * as St from './stats.js';
-import * as Hu from './hunter.js';
-import * as Ch from './charts.js';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.1.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.1.1';
+import { Sync } from './sync.js?v=1.1.1';
+import * as St from './stats.js?v=1.1.1';
+import * as Hu from './hunter.js?v=1.1.1';
+import * as Ch from './charts.js?v=1.1.1';
 import {
   addDays, dayOf, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, todayStr, uid,
-} from './util.js';
+} from './util.js?v=1.1.1';
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -1014,6 +1014,8 @@ async function boot() {
 
   bindEvents();
   render();
+  window.__booted = true;
+  try { sessionStorage.removeItem('nh-heal'); } catch { /* storage blocked */ }
   sync.run();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

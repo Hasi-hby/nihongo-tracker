@@ -1,16 +1,22 @@
 // Offline support: network first (so updates arrive immediately), falling back to the
 // cached app shell when offline or when the network takes longer than 3 s.
-// GitHub API calls are never touched.
+// All app files are requested with ?v=<version> (see tools/bump_version.py), so the
+// cache holds exactly one consistent set per version. GitHub API calls are never touched.
 
-const CACHE = 'nihongo-hunter-v2';
+const VERSION = '1.1.1';
+const CACHE = `nihongo-hunter-${VERSION}`;
+const V = `?v=${VERSION}`;
 const SHELL = [
-  './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/store.js', 'js/merge.js', 'js/sync.js', 'js/stats.js', 'js/hunter.js', 'js/charts.js', 'js/util.js',
+  './', 'index.html', 'manifest.webmanifest', `styles.css${V}`,
+  ...['app', 'store', 'merge', 'sync', 'stats', 'hunter', 'charts', 'util'].map((f) => `js/${f}.js${V}`),
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // reload: bypass the HTTP cache so the precache never mixes in older files
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -22,10 +28,12 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  const nav = e.request.mode === 'navigate';
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const network = fetch(e.request, { cache: 'no-cache' }).then((res) => {
-      if (res.ok) cache.put(e.request, res.clone());
+    // a navigation Request cannot be re-fetched with options, so fetch its URL instead
+    const network = fetch(nav ? url.href : e.request, { cache: 'no-cache', credentials: 'same-origin' }).then((res) => {
+      if (res.ok && (nav || url.search)) cache.put(nav ? 'index.html' : e.request, res.clone());
       return res;
     });
     network.catch(() => {});
@@ -34,8 +42,7 @@ self.addEventListener('fetch', (e) => {
       const res = await Promise.race([network, timeout]);
       if (res) return res;
     } catch { /* offline */ }
-    const cached = await cache.match(e.request, { ignoreSearch: true })
-      || (e.request.mode === 'navigate' ? await cache.match('index.html') : null);
+    const cached = nav ? await cache.match('index.html') : await cache.match(e.request);
     return cached || network.catch(() => Response.error());
   })());
 });
