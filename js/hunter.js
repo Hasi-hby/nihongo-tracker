@@ -1,6 +1,6 @@
 // Solo-Leveling-style progression: XP = minutes, level L needs L(L+1)/2 hours in total.
 
-import { startOfWeek } from './util.js?v=1.2.0';
+import { startOfWeek } from './util.js?v=1.2.1';
 
 export const RANKS = [
   { id: 'E', name: 'E-Rang', h: 0, color: '#9ca3af' },

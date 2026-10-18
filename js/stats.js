@@ -1,7 +1,7 @@
 import {
   addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=1.2.0';
+} from './util.js?v=1.2.1';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {

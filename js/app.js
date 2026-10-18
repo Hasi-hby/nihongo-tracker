@@ -1,14 +1,14 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.2.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.2.0';
-import { Sync } from './sync.js?v=1.2.0';
-import * as St from './stats.js?v=1.2.0';
-import * as Hu from './hunter.js?v=1.2.0';
-import * as Ch from './charts.js?v=1.2.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.2.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.2.1';
+import { Sync } from './sync.js?v=1.2.1';
+import * as St from './stats.js?v=1.2.1';
+import * as Hu from './hunter.js?v=1.2.1';
+import * as Ch from './charts.js?v=1.2.1';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.2.0';
+} from './util.js?v=1.2.1';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -363,13 +363,16 @@ function todayCard(d) {
       <div class="tl-bar"><i style="width:${pct(m / max)}%"></i></div>
       <div class="tl-ref">Ø ${week ? 'Woche' : 'Tag'} zuletzt: ${fmtMin(ref)}</div></div>`;
   }).join('');
-  const diff = refTotal > 0 ? Math.round((total / refTotal - 1) * 100) : null;
+  // a running day/week is shown as "share of your average", not as a (mostly negative) difference
+  const share = refTotal > 0 ? Math.round((total / refTotal) * 100) : null;
+  const unit = week ? 'Woche' : 'Tag';
   return `<div class="card today-card"><div class="card-head"><h2>${icon(week ? 'calendar' : 'sun')} ${week ? 'Diese Woche' : 'Heute'} nach Aktivität</h2>
       <div class="seg"><button class="${week ? '' : 'active'}" data-action="home-range" data-r="day">Heute</button>
         <button class="${week ? 'active' : ''}" data-action="home-range" data-r="week">Woche</button></div></div>
     <div class="today-body">
       <div class="today-donut">${Ch.donut(list.map((a) => ({ label: a.name, value: by[a.name], color: a.color })), { size: 176, stroke: 22, center: fmtMin(total), sub: `${count} Logs` })}
-        ${diff != null && total > 0 ? `<div class="small ${diff >= 0 ? 'up' : 'down'}" style="text-align:center">${diff >= 0 ? '+' : ''}${diff} % ggü. Ø ${week ? 'der letzten 4 Wochen' : 'der letzten 7 Tage'}</div>` : ''}</div>
+        ${share != null ? `<div class="today-share ${share >= 100 ? 'up' : ''}">${share >= 100 ? '✓ ' : ''}${share} % von deinem Ø-${unit}
+          <span class="muted">(${fmtMin(refTotal)})</span></div>` : ''}</div>
       <div class="today-list">${rows || `<div class="muted">${week ? 'Diese Woche' : 'Heute'} ist noch nichts geloggt. Tippe unten auf einen Shortcut.</div>`}</div>
     </div></div>`;
 }
