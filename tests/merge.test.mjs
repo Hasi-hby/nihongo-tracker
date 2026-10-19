@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonLog, cmp, defaultMeta, mergeLists, mergeMeta, serializeLogs } from '../js/merge.js';
+import { canonLog, cmp, defaultMeta, mergeLists, mergeMeta, renameActivity, serializeLogs } from '../js/merge.js';
 
 const log = (id, u, extra = {}) => ({ id, d: '2026-10-18', t: 1000 + u, a: 'Anki', m: 15, src: 'manual', u, ...extra });
 
@@ -57,4 +57,42 @@ test('serialized log files are canonical and round-trip', () => {
   const parsed = JSON.parse(text);
   assert.deepEqual(parsed.logs.map((x) => x.id), ['a', 'b']);
   assert.equal(serializeLogs(parsed.logs), text);
+});
+
+const act = (meta, id) => meta.activities.find((a) => a.id === id);
+const entry = (id, a, extra = {}) => ({ id, d: '2026-10-19', t: 1, a, m: 5, u: 1, ...extra });
+
+test('renaming an activity moves its live logs, shortcuts, quests and the chorus quest', () => {
+  const meta = defaultMeta();
+  meta.quests = [{ id: 'q', scope: 'day', a: 'phonetic training', m: 10, u: 1 }];
+  const logs = [entry('1', 'phonetic training'), entry('2', 'Anki'), entry('3', 'phonetic training', { x: 1 })];
+  const r = renameActivity(logs, meta, 'phonetic training', 'Chorusing', 99, { chorusDefault: 'phonetic training' });
+  assert.equal(r.merged, false);
+  assert.deepEqual(r.logs.map((l) => [l.id, l.a, l.u]), [['1', 'Chorusing', 99]]);
+  assert.equal(act(r.meta, 'phonetic training').name, 'Chorusing');
+  assert.equal(act(r.meta, 'phonetic training').u, 99);
+  assert.equal(r.meta.shortcuts.find((s) => s.id === 's5').a, 'Chorusing');
+  assert.equal(r.meta.quests[0].a, 'Chorusing');
+  assert.equal(r.meta.settings.chorus.a, 'Chorusing');
+  assert.equal(act(meta, 'phonetic training').name, 'phonetic training', 'input untouched');
+});
+
+test('renaming onto an existing activity merges and hides the old one', () => {
+  const meta = defaultMeta();
+  meta.activities.push({ id: 'Anki/immersion', name: 'Anki/immersion', color: '#fff', attr: 'listen', o: 9, u: 1 });
+  const r = renameActivity([entry('1', 'Anki/immersion')], meta, 'Anki/immersion', 'Immersion', 99);
+  assert.equal(r.merged, true);
+  assert.equal(r.logs[0].a, 'Immersion');
+  assert.equal(act(r.meta, 'Anki/immersion').x, 1);
+  assert.equal(act(r.meta, 'Immersion').u, 0, 'target untouched');
+  assert.equal(r.meta.settings, meta.settings, 'chorus not involved');
+});
+
+test('merging into a hidden activity brings it back', () => {
+  const meta = defaultMeta();
+  meta.activities = meta.activities.map((a) => (a.id === 'Anki' ? { ...a, x: 1 } : a));
+  const r = renameActivity([], meta, 'Output', 'Anki', 7);
+  assert.equal(r.merged, true);
+  assert.equal(act(r.meta, 'Anki').x, 0);
+  assert.equal(act(r.meta, 'Output').x, 1);
 });

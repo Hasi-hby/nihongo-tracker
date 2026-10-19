@@ -82,6 +82,32 @@ export function serializeMeta(meta) {
   return JSON.stringify(out, null, 1) + '\n';
 }
 
+/**
+ * Rename activity `from` to `to`, or merge it into `to` when that activity exists already
+ * (then `from` is hidden and a hidden `to` comes back). Returns the changed live logs and a
+ * new meta; shortcuts, quests and the chorus quest follow. Everything changed gets u = now.
+ * chorusDefault: the chorus activity used while settings.chorus has none.
+ */
+export function renameActivity(logs, meta, from, to, now = Date.now(), { chorusDefault = null } = {}) {
+  const list = meta.activities || [];
+  const target = list.find((a) => a.name === to && a.name !== from);
+  const next = { ...meta };
+  next.activities = list.map((a) => {
+    if (target && a === target) return a.x ? { ...a, x: 0, u: now } : a;
+    if (a.x || a.name !== from) return a;
+    return target ? { ...a, x: 1, u: now } : { ...a, name: to, u: now };
+  });
+  for (const k of ['shortcuts', 'quests']) {
+    next[k] = (meta[k] || []).map((x) => (!x.x && x.a === from ? { ...x, a: to, u: now } : x));
+  }
+  const set = meta.settings || {};
+  if ((set.chorus?.a ?? chorusDefault) === from) {
+    next.settings = { ...set, chorus: { ...(set.chorus || {}), a: to }, u: now };
+  }
+  const changed = logs.filter((l) => !l.x && l.a === from).map((l) => ({ ...l, a: to, u: now }));
+  return { logs: changed, meta: next, merged: !!target };
+}
+
 /** Defaults for a fresh device. u = 0 so anything already synced wins. */
 export function defaultMeta() {
   const acts = [

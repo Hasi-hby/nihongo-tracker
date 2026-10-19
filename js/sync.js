@@ -1,13 +1,15 @@
 // Sync with a private GitHub repo through the REST API:
 //   meta.json          activities, shortcuts, quests, settings, timer
 //   logs/<year>.json   all logs of that year (tombstones included)
+//   inbox/<name>.json  logs written from outside the app (see inbox.js)
 // Pull: one conditional request on the repo root (304 when nothing changed), then only
 // the blobs whose sha moved. Push: PUT with the last known sha; a conflict re-pulls,
 // merges and retries. Local changes are tracked as dirty counters so edits made while
-// a request is in flight are never lost.
+// a request is in flight are never lost. Inbox files are merged into the logs on pull and
+// deleted only after the year files holding them were pushed.
 
-import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=1.5.0';
-import { getKV, setKV } from './store.js?v=1.5.0';
+import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=1.6.0';
+import { getKV, setKV } from './store.js?v=1.6.0';
 
 const API = 'https://api.github.com';
 
@@ -22,10 +24,16 @@ function b64(text) {
   return btoa(bin);
 }
 
-const freshState = () => ({ repoKey: '', etag: null, metaSha: null, logsTree: null, files: {}, dirty: { meta: 0, years: {} }, lastOk: null });
+const freshState = () => ({
+  repoKey: '', etag: null, metaSha: null, logsTree: null, files: {}, dirty: { meta: 0, years: {} }, lastOk: null,
+  inboxTree: null, inbox: {}, inboxBad: {}, // inbox: merged, waiting for delete; inboxBad: unreadable, left in place
+});
 
 export class Sync {
-  /** host: { logsOfYear(y), localYears(), applyLogs(logs), getMeta(), applyMeta(meta), onStatus(s) } */
+  /**
+   * host: { logsOfYear(y), localYears(), applyLogs(logs), getMeta(), applyMeta(meta), onStatus(s),
+   *         fromInbox(name, data) -> { logs, errors }, onInbox(logs, bad) }
+   */
   constructor(host) {
     this.host = host;
     this.cfg = { token: '', owner: '', repo: '', device: '' };
@@ -76,6 +84,11 @@ export class Sync {
 
   pending() {
     return Object.keys(this.state.dirty.years).length + (this.state.dirty.meta ? 1 : 0);
+  }
+
+  /** Inbox files that could not be read and stay in the repo. */
+  inboxBad() {
+    return Object.keys(this.state.inboxBad || {}).length;
   }
 
   schedule(delay = 3000) {
@@ -171,8 +184,66 @@ export class Sync {
     for (const y of this.host.localYears()) {
       if (!remoteYears.has(y) && !st.dirty.years[y]) st.dirty.years[y] = 1;
     }
+    // after the year files, so a log that was already moved and edited elsewhere stays edited
+    if (await this.pullInbox(items.find((i) => i.path === 'inbox' && i.type === 'dir'))) changed = true;
     st.etag = etag;
     return changed;
+  }
+
+  async pullInbox(dir) {
+    const st = this.state;
+    if (!dir) { st.inboxTree = null; st.inbox = {}; st.inboxBad = {}; return false; }
+    if (dir.sha === st.inboxTree || !this.host.fromInbox) return false;
+    const res = await this.req('/contents/inbox');
+    if (!res.ok) throw new SyncError('error', `GitHub antwortet ${res.status}`);
+    const files = (await res.json()).filter((f) => f.type === 'file' && /\.json$/i.test(f.name));
+    const live = new Set(files.map((f) => f.path));
+    for (const k of ['inbox', 'inboxBad']) {
+      for (const p of Object.keys(st[k])) if (!live.has(p)) delete st[k][p];
+    }
+    const imported = [], bad = [];
+    for (const f of files) {
+      if (st.inbox[f.path] === f.sha || st.inboxBad[f.path] === f.sha) continue;
+      let r;
+      try {
+        r = this.host.fromInbox(f.name, await this.blob(f.sha));
+      } catch (e) {
+        if (e instanceof SyncError) throw e;
+        r = { logs: [], errors: ['kein gültiges JSON'] };
+      }
+      if (r.errors.length || !r.logs.length) {
+        st.inboxBad[f.path] = f.sha;
+        bad.push({ path: f.path, errors: r.errors.length ? r.errors : ['keine Einträge'] });
+        continue;
+      }
+      const years = new Map();
+      for (const l of r.logs) years.set(l.d.slice(0, 4), [...(years.get(l.d.slice(0, 4)) || []), l]);
+      for (const [y, list] of years) {
+        const m = mergeLists(this.host.logsOfYear(y), list);
+        if (!m.toLocal.length) continue;
+        await this.host.applyLogs(m.toLocal);
+        st.dirty.years[y] = (st.dirty.years[y] || 0) + 1;
+        imported.push(...m.toLocal);
+      }
+      st.inbox[f.path] = f.sha;
+    }
+    st.inboxTree = dir.sha;
+    if (imported.length) this.desc.push(`Inbox: ${imported.length} Log${imported.length > 1 ? 's' : ''}`);
+    if (imported.length || bad.length) this.host.onInbox?.(imported, bad);
+    return imported.length > 0;
+  }
+
+  /** Remove merged inbox files. Gone already = done; a conflict forces a fresh listing next time. */
+  async clearInbox() {
+    const st = this.state;
+    for (const [path, sha] of Object.entries(st.inbox)) {
+      const res = await this.req(`/contents/${path}`, {
+        method: 'DELETE', body: { message: `${this.cfg.device || 'Gerät'}: Inbox übernommen`, sha },
+      });
+      if (res.status === 409 || res.status === 422) st.inboxTree = null;
+      else if (!res.ok && res.status !== 404) throw new SyncError('error', `Inbox aufräumen fehlgeschlagen (${res.status})`);
+      delete st.inbox[path];
+    }
   }
 
   async put(path, text, sha) {
@@ -200,6 +271,7 @@ export class Sync {
     }
     this.desc = [];
     st.etag = null; // our own commits changed the root listing
+    await this.clearInbox();
   }
 
   async run() {

@@ -1,17 +1,18 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.5.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta } from './merge.js?v=1.5.0';
-import { Sync } from './sync.js?v=1.5.0';
-import * as St from './stats.js?v=1.5.0';
-import * as Hu from './hunter.js?v=1.5.0';
-import * as Ch from './charts.js?v=1.5.0';
-import { rankBadge } from './badge.js?v=1.5.0';
-import { buildExport } from './export.js?v=1.5.0';
-import { zip } from './zip.js?v=1.5.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.6.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=1.6.0';
+import { Sync } from './sync.js?v=1.6.0';
+import { parseInbox } from './inbox.js?v=1.6.0';
+import * as St from './stats.js?v=1.6.0';
+import * as Hu from './hunter.js?v=1.6.0';
+import * as Ch from './charts.js?v=1.6.0';
+import { rankBadge } from './badge.js?v=1.6.0';
+import { buildExport } from './export.js?v=1.6.0';
+import { zip } from './zip.js?v=1.6.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.5.0';
+} from './util.js?v=1.6.0';
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
 
@@ -49,6 +50,7 @@ const timer = () => S.meta.timer || { state: 'idle' };
 const pct = (x) => Math.max(0, Math.min(100, x * 100)).toFixed(1);
 const CHORUS_DEFAULTS = { on: true, a: 'phonetic training', m: 5, from: 14, until: 16 };
 const chorusCfg = () => ({ ...CHORUS_DEFAULTS, ...(settings().chorus || {}) });
+const TIMER_WARN_MIN = 180; // longer runs are probably a forgotten timer: ask before logging
 
 /** ms until the current tracking day ends (midnight, or the custom day end). */
 function msUntilDayEnd() {
@@ -127,6 +129,16 @@ async function saveLog(l, { desc, prevYear } = {}) {
   sync.schedule();
 }
 
+/** Many logs at once (e.g. renaming an activity): one store write and one sync mark per year. */
+async function saveLogs(list, desc) {
+  const c = list.map(canonLog);
+  c.forEach((l) => S.logs.set(l.id, l));
+  await putLogs(c);
+  new Set(c.map((l) => l.d.slice(0, 4))).forEach((y) => sync.markYear(y, desc));
+  S.ver++;
+  sync.schedule();
+}
+
 async function addLog({ a, m, d, t, n, md, src = 'manual' }) {
   const before = D();
   const l = { id: uid(), d: d || today(), t: t || Date.now(), a, m, n, md, src };
@@ -193,11 +205,21 @@ async function timerAction(kind) {
   if (kind === 'resume') return setTimer({ ...tm, state: 'running', start: Date.now() }, 'Timer weiter');
   if (kind === 'discard') return setTimer({ state: 'idle' }, 'Timer verworfen');
   if (kind === 'stop') {
-    const mins = Math.round(timerElapsed(tm) / 60000);
+    const ms = timerElapsed(tm), mins = Math.round(ms / 60000);
+    const entry = { a: tm.a, m: mins, d: dayOf(tm.begin || Date.now(), settings().dayEnd || 0), t: tm.begin, src: 'timer' };
+    if (mins > TIMER_WARN_MIN) {
+      // paused until confirmed: cancelling the dialog loses nothing
+      if (tm.state === 'running') await setTimer({ ...tm, state: 'paused', acc: ms, start: null }, 'Timer pausiert');
+      return openLogModal(null, {
+        ...entry,
+        title: `Timer lief ${fmtMin(mins)} – stimmt das?`,
+        sub: 'Falls du ihn vergessen hast, korrigiere die Dauer. Abbrechen lässt den Timer pausiert.',
+        onSaved: () => setTimer({ state: 'idle' }, 'Timer gestoppt'),
+      });
+    }
     await setTimer({ state: 'idle' }, 'Timer gestoppt');
     if (mins < 1) { toast('Unter einer Minute, nichts geloggt'); return; }
-    const dayEnd = settings().dayEnd || 0;
-    await addLog({ a: tm.a, m: mins, d: dayOf(tm.begin || Date.now(), dayEnd), t: tm.begin, src: 'timer' });
+    await addLog(entry);
   }
 }
 
@@ -441,9 +463,10 @@ function timerCard() {
       <div class="row"><select id="timerAct" style="flex:1;min-width:160px">${acts().map((a) => `<option>${esc(a.name)}</option>`).join('')}</select>
       <button class="btn btn-primary" data-action="timer" data-kind="start">Start</button></div></div>`;
   }
-  const running = tm.state === 'running';
+  const running = tm.state === 'running', elapsed = timerElapsed(tm);
   return `<div class="card timer-live"><div class="card-head"><h2>${icon('timer')} Timer</h2><span class="sub">${esc(tm.a)} · seit ${clock(tm.begin || Date.now())}</span></div>
-    <div id="timerClock" class="timer-clock ${running ? 'running' : ''}">${fmtClock(timerElapsed(tm))}</div>
+    <div id="timerClock" class="timer-clock ${running ? 'running' : ''}">${fmtClock(elapsed)}</div>
+    ${running && elapsed > TIMER_WARN_MIN * 60000 ? `<div class="timer-warn">Läuft seit über ${fmtMin(Math.floor(elapsed / 3600000) * 60)} – noch dran? Beim Stoppen kannst du die Dauer korrigieren.</div>` : ''}
     <div class="row" style="margin-top:12px">
       ${running ? '<button class="btn" data-action="timer" data-kind="pause">Pause</button>' : '<button class="btn" data-action="timer" data-kind="resume">Weiter</button>'}
       <button class="btn btn-primary" data-action="timer" data-kind="stop">Stop &amp; loggen</button>
@@ -681,11 +704,12 @@ const ACT_OPTS = (sel, withAll = false) => (withAll ? `<option value="">Gesamt (
   + acts().map((a) => `<option ${a.name === sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
 
 function syncText() {
-  const s = sync.status, pend = sync.pending();
+  const s = sync.status, pend = sync.pending(), bad = sync.inboxBad();
   const last = s.lastOk ? `zuletzt ${relDay(dayOf(s.lastOk))} ${clock(s.lastOk)}` : '';
+  const badTxt = bad ? ` · ⚠ ${bad} Inbox-Datei${bad > 1 ? 'en' : ''} unlesbar (liegt im Repo unter inbox/)` : '';
   return {
     local: 'Nur auf diesem Gerät gespeichert. Mit Token wird zwischen deinen Geräten gesynct.',
-    idle: 'Verbunden.', syncing: 'Synchronisiere …', ok: `Synchron ✓ ${last}`,
+    idle: 'Verbunden.', syncing: 'Synchronisiere …', ok: `Synchron ✓ ${last}${badTxt}`,
     offline: `Offline, ${pend} Datei(en) warten auf Upload. Geht automatisch weiter.`,
     error: `Fehler: ${s.detail}`, auth: `Zugriff fehlgeschlagen: ${s.detail}`,
   }[s.kind] || '';
@@ -713,6 +737,23 @@ function viewSettings() {
       </ol><p class="muted small">Ein Token pro Gerät: Geht ein Handy verloren, löschst du nur dessen Token auf GitHub.</p></details>
     </div>
 
+    <div class="card" id="sec-inbox"><div class="card-head"><h2>${icon('bolt')} Loggen ohne App</h2><span class="sub">Siri, Widget, Apple Watch, PC</span></div>
+      <p class="muted small" style="margin:0 0 12px">Alles, was eine Datei in <code>inbox/</code> im Daten-Repo ablegt, wird beim nächsten Sync ein normaler Log, auch wenn die App gerade zu ist.
+        Format: <code>{"a":"Immersion","m":20,"md":"…","t":"…","src":"siri"}</code>, Pflicht sind nur <code>a</code> (Aktivität) und <code>m</code> (Minuten).</p>
+      <details class="guide"><summary>iOS-Kurzbefehl einrichten</summary><ol>
+        <li>Eigenen <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained Token</a> „Hunter Kurzbefehl“: nur <code>${esc(S.device.repo)}</code>, <b>Contents: Read and write</b>.</li>
+        <li>Kurzbefehle-App → <b>+</b> → <b>„Nach Eingabe fragen“</b> (Zahl, „Wie viele Minuten?“). Für einen 1-Tipp-Log stattdessen eine feste Zahl nehmen.</li>
+        <li><b>„Wörterbuch“</b>: <code>a</code> = Immersion, <code>m</code> = Eingabe (Zahl), <code>t</code> = Aktuelles Datum (Format ISO 8601), <code>src</code> = siri, optional <code>md</code> = Medium.</li>
+        <li><b>„Base64-Codierung“</b> auf das Wörterbuch, Zeilenumbrüche: <i>Keine</i>.</li>
+        <li><b>„Inhalt von URL abrufen“</b>: <code>https://api.github.com/repos/${esc(S.device.owner)}/${esc(S.device.repo)}/contents/inbox/</code> + Aktuelles Datum (Benutzerdefiniert <code>yyyyMMdd-HHmmss</code>) + <code>.json</code>.
+          Methode <b>PUT</b>, Header <code>Authorization</code> = <code>Bearer &lt;Token&gt;</code>, Hauptteil <b>JSON</b>: <code>message</code> = Kurzbefehl, <code>content</code> = Base64-Text.</li>
+        <li>Starten per Siri (Name des Kurzbefehls), Home-Bildschirm-Widget, Apple Watch oder NFC-Automation.</li>
+      </ol></details>
+      <details class="guide" style="margin-top:10px"><summary>Vom PC oder aus eigenen Skripten</summary>
+        <code class="code-block">python tools/log.py Immersion 25 --md "Solo Leveling S1E03"</code>
+        <p class="muted small" style="margin:0">Legt die Datei im Daten-Klon an und pusht sie mit deinem normalen Git-Login. Aus Python: <code>from log import log</code>.</p></details>
+    </div>
+
     <div class="card" id="sec-shortcuts"><div class="card-head"><h2>Shortcuts</h2><span class="sub">Standard-Dauer pro Shortcut · Tasten 1–9</span></div>
       <label class="toggle"><input type="checkbox" data-change="set-instant" ${set.instantShortcuts ? 'checked' : ''}>
         <span><b>Sofort loggen</b><br><span class="muted small">Aus: Ein Tipp öffnet den Schnell-Log, dort passt du die tatsächliche Dauer an. An: Es wird direkt die Standard-Dauer geloggt.</span></span></label>
@@ -735,7 +776,8 @@ function viewSettings() {
       <div class="list">${acts().map((a) => `<div class="item" style="grid-template-columns:auto minmax(0,1fr) minmax(0,140px) auto">
         <input type="color" value="${esc(a.color)}" data-change="act-color" data-id="${esc(a.id)}" aria-label="Farbe">
         <b>${esc(a.name)}</b><select data-change="act-attr" data-id="${esc(a.id)}">${ATTR_OPTS(a.attr)}</select>
-        <button class="link" data-action="act-hide" data-id="${esc(a.id)}" title="Aus Auswahllisten entfernen (Logs bleiben)">✕</button></div>`).join('')}</div>
+        <div class="right"><button class="link" data-action="act-rename" data-id="${esc(a.id)}" title="Umbenennen oder zusammenführen" aria-label="Umbenennen">${icon('edit', 16)}</button>
+          <button class="link" data-action="act-hide" data-id="${esc(a.id)}" title="Aus Auswahllisten entfernen (Logs bleiben)">✕</button></div></div>`).join('')}</div>
       <div class="form-grid form-inline act-form">
         <label class="field"><span>Neue Aktivität</span><input type="text" id="newActName" placeholder="z. B. Lesen"></label>
         <label class="field"><span>Farbe</span><input type="color" id="newActColor" value="#38bdf8"></label>
@@ -792,15 +834,18 @@ function viewSettings() {
 function openLogModal(id = null, preset = {}) {
   const l = id ? S.logs.get(id) : null;
   const quick = !l && !!preset.quick;
-  const dflt = l || { a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: today(), t: Date.now() };
+  const dflt = l || {
+    a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: preset.d || today(), t: preset.t || Date.now(),
+  };
   const names = acts().map((a) => a.name);
   if (dflt.a && !names.includes(dflt.a)) names.push(dflt.a);
   const media = [...new Set(D().live.map((x) => x.md).filter(Boolean))].slice(0, 200);
-  const title = l ? 'Log bearbeiten' : quick ? 'Wie lange wirklich?' : 'Aktivität loggen';
+  const title = l ? 'Log bearbeiten' : preset.title || (quick ? 'Wie lange wirklich?' : 'Aktivität loggen');
+  const sub = quick ? `Shortcut · Standard ${fmtMin(preset.m)}` : !l && preset.sub ? preset.sub : '';
   const dlg = $('#modal');
   dlg.className = 'sheet';
   dlg.innerHTML = `<form class="modal-body" id="logForm" style="--c:${colorOf(dflt.a)}">
-    <div class="modal-head"><div><h2>${title}</h2>${quick ? `<div class="muted small">Shortcut · Standard ${fmtMin(preset.m)}</div>` : ''}</div>
+    <div class="modal-head"><div><h2>${esc(title)}</h2>${sub ? `<div class="muted small">${esc(sub)}</div>` : ''}</div>
       <button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
     <label class="field"><span>Aktivität</span><select name="a" class="act-select">${names.map((n) => `<option ${n === dflt.a ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <div class="field"><span>Dauer</span>
@@ -853,6 +898,7 @@ function openLogModal(id = null, preset = {}) {
       toast('Log gespeichert');
     } else {
       await addLog({ ...fields, src: preset.src || 'manual' });
+      await preset.onSaved?.();
     }
   };
   form.m.oninput = () => { form.m.setCustomValidity(''); hint(); };
@@ -913,6 +959,53 @@ function openQuestModal(id = null) {
   drawChips();
   hint();
   dlg.showModal();
+}
+
+/** Rename an activity, or merge it into another one when the new name exists already. */
+function openActModal(id) {
+  const act = acts().find((a) => a.id === id);
+  if (!act) return;
+  const count = D().live.filter((l) => l.a === act.name).length;
+  const others = acts().filter((a) => a.id !== act.id);
+  const dlg = $('#modal');
+  dlg.className = 'sheet';
+  dlg.innerHTML = `<form class="modal-body" id="actForm" style="--c:${colorOf(act.name)}">
+    <div class="modal-head"><div><h2>Aktivität umbenennen</h2><div class="muted small">${esc(act.name)} · ${fmtNum(count)} Logs</div></div>
+      <button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
+    <label class="field"><span>Neuer Name</span><input type="text" name="to" list="actNames" maxlength="60" autocomplete="off" value="${esc(act.name)}" required>
+      <datalist id="actNames">${others.map((a) => `<option value="${esc(a.name)}">`).join('')}</datalist></label>
+    <p class="muted small" id="actHint" style="margin:0">Den Namen einer anderen Aktivität wählen, um beide zusammenzuführen.</p>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-primary btn-wide" id="actSubmit">Umbenennen</button></div>
+  </form>`;
+  const form = $('#actForm');
+  const targetOf = (v) => others.find((a) => a.name.toLowerCase() === v.trim().toLowerCase());
+  form.to.oninput = () => {
+    const t = targetOf(form.to.value);
+    $('#actSubmit').textContent = t ? 'Zusammenführen' : 'Umbenennen';
+    $('#actHint').innerHTML = t
+      ? `<b>${fmtNum(count)} Logs</b> von „${esc(act.name)}“ wandern zu „${esc(t.name)}“. „${esc(act.name)}“ verschwindet aus den Listen. Lässt sich nicht rückgängig machen.`
+      : 'Den Namen einer anderen Aktivität wählen, um beide zusammenzuführen.';
+  };
+  form.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dlg.close(); });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const to = targetOf(form.to.value)?.name || form.to.value.trim();
+    dlg.close();
+    if (to && to !== act.name) await renameAct(act.name, to);
+  };
+  dlg.showModal();
+  form.to.select();
+}
+
+async function renameAct(from, to) {
+  const r = renameActivity([...S.logs.values()], S.meta, from, to, Date.now(), { chorusDefault: CHORUS_DEFAULTS.a });
+  const desc = `${from} → ${to}`;
+  if (r.logs.length) await saveLogs(r.logs, desc);
+  if (S.ui.logA === from) S.ui.logA = to;
+  await setMeta((m) => Object.assign(m, r.meta), desc, 800);
+  if (r.merged) toast(`${fmtNum(r.logs.length)} Logs nach „${to}“ verschoben`);
+  else toast(`Umbenannt in „${to}“`, { label: 'Rückgängig', fn: () => renameAct(to, from) });
 }
 
 function shortcutTap(sc) {
@@ -1085,9 +1178,13 @@ async function onAction(el) {
       if (!name) return;
       if (acts().some((a) => a.name.toLowerCase() === name.toLowerCase())) { toast('Gibt es schon'); return; }
       const o = Math.max(-1, ...acts().map((a) => a.o ?? 0)) + 1;
-      return setMeta(upsertItem('activities', { id: name, name, color: $('#newActColor').value, attr: $('#newActAttr').value, o }), `Aktivität ${name}`);
+      // ids are the original names: a renamed activity may still own this one, a hidden one comes back
+      const same = (S.meta.activities || []).find((a) => a.id === name);
+      const aid = same && same.name !== name ? uid() : name;
+      return setMeta(upsertItem('activities', { id: aid, name, color: $('#newActColor').value, attr: $('#newActAttr').value, o, x: 0 }), `Aktivität ${name}`);
     }
     case 'act-hide': return setMeta(upsertItem('activities', { id, x: 1 }), 'Aktivität ausgeblendet');
+    case 'act-rename': return openActModal(id);
     case 'export-all': return exportAll();
     case 'export-one': return exportOne(el.dataset.file, el.dataset.type);
     case 'sync-now':
@@ -1235,6 +1332,18 @@ async function boot() {
     getMeta: () => S.meta,
     applyMeta: async (m) => { S.meta = m; await setKV('meta', m); S.ver++; render(); },
     onStatus: () => renderSyncPill(),
+    fromInbox: (name, data) => parseInbox(name, data, {
+      dayEnd: settings().dayEnd || 0, actNames: (S.meta.activities || []).map((a) => a.name),
+    }),
+    onInbox: (logs, bad) => {
+      if (logs.length === 1) {
+        const [l] = logs;
+        toast(`Inbox: +${fmtMin(l.m)} ${l.a}${l.src && l.src !== 'inbox' ? ` (${l.src})` : ''}`);
+      } else if (logs.length) {
+        toast(`Inbox: ${logs.length} Logs übernommen (${fmtMin(logs.reduce((s, l) => s + l.m, 0))})`);
+      }
+      if (bad.length) toast(`Inbox-Datei unlesbar (${bad[0].path.split('/').pop()}): ${bad[0].errors[0]}`);
+    },
   });
   await sync.init({ token: S.device.token, owner: S.device.owner, repo: S.device.repo, device: S.device.name });
 
