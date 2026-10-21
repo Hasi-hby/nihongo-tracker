@@ -92,7 +92,7 @@ h3 { font-size: 0.9rem; margin-bottom: 10px; }
 }
 .brand { font-size: 1rem; font-weight: 400; letter-spacing: 0.1em; white-space: nowrap; }
 .tabs { display: none; gap: 4px; }
-.tabs button { background: none; border: 0; padding: 7px 12px; color: var(--muted); font-weight: 500; font-size: 0.9rem; border-radius: 99px; }
+.tabs button { background: none; border: 0; padding: 7px 12px; color: var(--muted); font-weight: 500; font-size: 0.9rem; border-radius: 99px; transition: color 0.2s, background-color 0.2s; }
 .tabs button:hover { color: var(--text); }
 .tabs button.active { color: var(--mint); background: var(--mint-soft); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -123,7 +123,12 @@ h3 { font-size: 0.9rem; margin-bottom: 10px; }
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--line);
 }
-.bottomnav button { display: grid; place-items: center; background: none; border: 0; color: var(--muted); padding: 8px 0; }
+.bottomnav button { position: relative; display: grid; place-items: center; background: none; border: 0; color: var(--muted); padding: 8px 0; transition: color 0.2s; }
+.bottomnav button[data-view]::after {
+  content: ""; position: absolute; bottom: 0; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%;
+  background: var(--mint); opacity: 0; transform: scale(0); transition: opacity 0.2s, transform 0.2s;
+}
+.bottomnav button.active::after { opacity: 1; transform: scale(1); }
 .bottomnav svg { width: 22px; height: 22px; fill: currentColor; }
 .bottomnav button.active { color: var(--mint); }
 .bottomnav .nav-log { padding: 0; }
@@ -169,7 +174,6 @@ main { max-width: 1100px; margin: 0 auto; padding: 8px 18px 18px; outline: none;
   background: none; border: 1px solid var(--line-hi); font-weight: 500;
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
 }
-.btn:hover { border-color: var(--muted); }
 .btn:active { transform: scale(0.97); }
 .btn-primary { background: var(--mint); color: var(--mint-ink); border-color: transparent; font-weight: 600; }
 .btn-primary:hover { border-color: transparent; filter: brightness(1.06); }
@@ -244,6 +248,7 @@ input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid v
 .line-btn {
   flex: none; background: none; border: 1px solid var(--mint); color: var(--mint);
   border-radius: 99px; padding: 4px 13px; font-size: 0.82rem; font-weight: 600;
+  transition: background-color 0.15s, color 0.15s;
 }
 .line.warn .line-btn { border-color: var(--warn); color: var(--warn); }
 .ok { color: var(--mint); }
@@ -273,12 +278,11 @@ input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid v
 .sc {
   position: relative; display: grid; gap: 2px; text-align: left; color: inherit; min-width: 0;
   padding: 11px 13px; border-radius: 12px; background: none; border: 1px solid var(--line);
-  transition: border-color 0.15s, transform 0.1s;
+  transition: border-color 0.18s, background-color 0.18s, box-shadow 0.18s, transform 0.18s;
 }
 .sc b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 18px; }
-.sc b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--c, var(--mint)); vertical-align: 1px; }
+.sc b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--c, var(--mint)); vertical-align: 1px; transition: transform 0.18s, box-shadow 0.18s; }
 .sc > span { color: var(--muted); font-size: 0.8rem; }
-.sc:hover { border-color: var(--line-hi); }
 .sc:active { transform: scale(0.97); }
 .sc kbd { position: absolute; top: 9px; right: 9px; font: 0.66rem ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line-hi); border-radius: 5px; padding: 0 5px; }
 .sc-add { border-style: dashed; }
@@ -292,9 +296,8 @@ input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid v
 .card-head + .goal-group { margin-top: 0; }
 .quest {
   display: grid; gap: 4px; width: 100%; min-width: 0; text-align: left; color: inherit; padding: 11px 12px; margin-top: 8px;
-  border-radius: 12px; border: 1px solid var(--line); background: none; transition: border-color 0.15s;
+  border-radius: 12px; border: 1px solid var(--line); background: none; transition: border-color 0.18s, background-color 0.18s;
 }
-.quest:hover { border-color: var(--line-hi); }
 .quest-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 500; }
 .quest-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quest-amt { color: var(--muted); font-size: 0.84rem; white-space: nowrap; }
@@ -434,4 +437,51 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
   .act-form > button { grid-column: 1 / -1; }
   .card { padding: 14px; }
 }
+/* ---- Hover: show clearly what the pointer is on (only on devices that can hover) ---- */
+@media (hover: hover) {
+  .sc:hover {
+    border-color: var(--c, var(--mint)); background-color: color-mix(in srgb, var(--c, var(--mint)) 9%, transparent);
+    box-shadow: 0 10px 26px -14px var(--c, var(--mint)); transform: translateY(-2px);
+  }
+  .sc:hover b::before { transform: scale(1.45); box-shadow: 0 0 10px var(--c, var(--mint)); }
+  .sc:hover > span { color: var(--text-2); }
+  .sc-add:hover { border-color: var(--mint); background-color: var(--mint-soft); color: var(--mint); box-shadow: none; }
+  .quest:hover { border-color: color-mix(in srgb, var(--mint) 50%, var(--line)); background-color: var(--mint-soft); }
+  .line-btn:hover { background-color: var(--mint); color: var(--mint-ink); }
+  .line.warn .line-btn:hover { background-color: var(--warn); color: #1a0b06; }
+  .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost):hover { border-color: var(--mint); color: var(--mint); }
+  .btn-danger:hover { border-color: var(--warn); }
+  .bottomnav button:not(.nav-log):hover, .tabs button:not(.active):hover { color: var(--text); }
+  .icon-btn:hover, .sync-pill:hover { border-color: var(--mint); color: var(--mint); }
+}
+.sc:active { transform: scale(0.97); }
+.sc:focus-visible, .quest:focus-visible, .btn:focus-visible, .line-btn:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+/* ---- Motion: calm and short, only transform and opacity; all off with "reduce motion" ---- */
+.view-enter > .grid > * { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.view-enter > .grid > :nth-child(2) { animation-delay: 0.05s; }
+.view-enter > .grid > :nth-child(3) { animation-delay: 0.1s; }
+.view-enter > .grid > :nth-child(4) { animation-delay: 0.15s; }
+.view-enter > .grid > :nth-child(5) { animation-delay: 0.2s; }
+.view-enter > .grid > :nth-child(n+6) { animation-delay: 0.25s; }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+.view-enter .wbars i { animation: grow 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s backwards; transform-origin: bottom; }
+.view-enter .wbars i:nth-child(2) { animation-delay: 0.14s; }
+.view-enter .wbars i:nth-child(3) { animation-delay: 0.18s; }
+.view-enter .wbars i:nth-child(4) { animation-delay: 0.22s; }
+.view-enter .wbars i:nth-child(5) { animation-delay: 0.26s; }
+.view-enter .wbars i:nth-child(6) { animation-delay: 0.3s; }
+.view-enter .wbars i:nth-child(7) { animation-delay: 0.34s; }
+@keyframes grow { from { transform: scaleY(0); } }
+.view-enter .bar > i, .view-enter .tl-bar > i { animation: fill 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s backwards; transform-origin: left; }
+@keyframes fill { from { transform: scaleX(0); } }
+.hero::before { animation: breathe 7s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.65; transform: scale(1.08); } }
+.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0%, 30% { color: var(--mint-hi); text-shadow: 0 0 14px var(--mint); } }
+.toast.out { animation: toastOut 0.22s ease-in forwards; }
+@keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.line.now .line-btn { animation: nudge 2.6s ease-in-out infinite; }
+@keyframes nudge { 50% { box-shadow: 0 0 0 5px var(--mint-soft); } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

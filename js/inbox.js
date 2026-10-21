@@ -4,8 +4,8 @@
 // or several at once as {"logs":[...]}. Only `a` and `m` are required. Everything derived
 // here is deterministic, so two devices handling the same file produce identical logs.
 
-import { canonLog } from './merge.js?v=2.1.1';
-import { dayOf, parseDuration } from './util.js?v=2.1.1';
+import { canonLog } from './merge.js?v=2.2.0';
+import { dayOf, parseDuration } from './util.js?v=2.2.0';
 
 const MAX_TEXT = 500;
 

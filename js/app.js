@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.1.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.1.1';
-import { Sync } from './sync.js?v=2.1.1';
-import { parseInbox } from './inbox.js?v=2.1.1';
-import * as St from './stats.js?v=2.1.1';
-import * as Ch from './charts.js?v=2.1.1';
-import { buildExport } from './export.js?v=2.1.1';
-import { zip } from './zip.js?v=2.1.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.0';
+import { Sync } from './sync.js?v=2.2.0';
+import { parseInbox } from './inbox.js?v=2.2.0';
+import * as St from './stats.js?v=2.2.0';
+import * as Ch from './charts.js?v=2.2.0';
+import { buildExport } from './export.js?v=2.2.0';
+import { zip } from './zip.js?v=2.2.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.1.1';
+} from './util.js?v=2.2.0';
 
-const VERSION = '2.1.1';
+const VERSION = '2.2.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -35,6 +35,10 @@ let cache = { ver: -1 };
 let sync;
 let pendingRender = false;
 let justSealed = false;
+let justLogged = false; // today's minutes light up after a new log
+let animateView = true; // the first render and every page change slide in
+let countUp = true; // the streak counts up once per app start
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function guessDevice() {
   const ua = navigator.userAgent;
@@ -144,6 +148,7 @@ async function addLog({ a, m, d, t, n, md, src = 'manual' }) {
   await saveLog(l, { desc: `+${fmtMin(m)} ${a}` });
   const after = D();
   justSealed = !before.sealed && after.sealed;
+  justLogged = true;
   render();
   toast(`${fmtMin(m)} ${a} geloggt`, { label: 'Rückgängig', fn: () => deleteLog(l.id, true) });
   milestones(before, after).forEach((note) => toast(note));
@@ -257,7 +262,21 @@ function toast(msg, action = null) {
   el.innerHTML = `<span>${esc(msg)}</span>${action ? `<button>${esc(action.label)}</button>` : ''}`;
   if (action) el.querySelector('button').onclick = () => { el.remove(); action.fn(); };
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), action ? 6000 : 3000);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 220); }, action ? 6000 : 3000);
+}
+
+/** Count a number element up from zero, fast at first, then slowing down. */
+function countTo(el) {
+  const target = parseInt(el?.textContent.replace(/\D/g, ''), 10);
+  if (!(target > 1)) return;
+  const t0 = performance.now(), dur = 900;
+  const step = (now) => {
+    if (!el.isConnected) return;
+    const p = Math.min(1, (now - t0) / dur);
+    el.textContent = fmtNum(Math.round(target * (1 - (1 - p) ** 3)));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 // ---- Views ----------------------------------------------------------------------------
@@ -289,7 +308,7 @@ function headCard(d) {
       ${Ch.weekBars(d.dm, d.today)}
     </section>
     <div class="lines">
-      <div class="line"><span>heute <b class="num">${fmtMin(d.dm.get(d.today)?.total || 0)}</b></span><span>Woche <b class="num">${fmtH(week)}</b></span></div>
+      <div class="line"><span>heute <b class="num ${justLogged ? 'flash' : ''}">${fmtMin(d.dm.get(d.today)?.total || 0)}</b></span><span>Woche <b class="num">${fmtH(week)}</b></span></div>
       ${s.atRisk ? '<div class="line warn">Heute ist noch nichts geloggt. Ohne Log endet die Serie heute Nacht.</div>' : ''}
       <div class="line"><span class="muted">Noch <b class="num">${fmtNum(Math.ceil(ms.leftMin / 60))} h</b> bis ${fmtNum(ms.hours)} h${when}</span></div>
       ${chorusBlock(d)}
@@ -981,8 +1000,13 @@ function render() {
   pendingRender = false;
   const v = VIEWS[S.ui.view] ? S.ui.view : 'home';
   document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-  $('#main').innerHTML = VIEWS[v]();
+  const main = $('#main');
+  main.innerHTML = VIEWS[v]();
+  main.classList.toggle('view-enter', animateView && !calm());
+  animateView = false;
+  if (countUp && v === 'home') { countUp = false; if (!calm()) countTo($('.hero-num')); }
   justSealed = false; // the glow animation plays once
+  justLogged = false;
   const td = $('#topDate');
   if (td) td.textContent = fmtDate(today(), { weekday: true, year: false });
   if (v === 'stats') drawBars();
@@ -999,7 +1023,9 @@ function render() {
 }
 
 function go(view, anchor) {
-  S.ui.view = VIEWS[view] ? view : 'home';
+  const next = VIEWS[view] ? view : 'home';
+  animateView = next !== S.ui.view;
+  S.ui.view = next;
   if (location.hash !== `#${S.ui.view}`) history.replaceState(null, '', `#${S.ui.view}`);
   saveUI();
   render();
@@ -1178,7 +1204,7 @@ function bindEvents() {
   addEventListener('hashchange', () => {
     const v = location.hash.slice(1);
     if (v && !VIEWS[v]) { go('home'); return; } // e.g. a link to the old hunter page
-    if (VIEWS[v] && v !== S.ui.view) { S.ui.view = v; render(); window.scrollTo({ top: 0 }); }
+    if (VIEWS[v] && v !== S.ui.view) { S.ui.view = v; animateView = true; render(); window.scrollTo({ top: 0 }); }
   });
   addEventListener('online', () => sync.run());
   addEventListener('offline', () => sync.setStatus('offline'));
