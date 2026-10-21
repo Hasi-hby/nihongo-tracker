@@ -1,7 +1,7 @@
 import {
   addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=1.6.0';
+} from './util.js?v=2.0.0';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {
@@ -38,50 +38,33 @@ export function sumRange(dm, a, b, activity = null) {
 }
 
 /**
- * Streak with freezes. A day counts when something was logged. Today without a log
- * keeps the streak alive (still open). From `freezeStart` on, every `every` streak
- * days earn a freeze (max `maxFreezes`); a missed day then uses one up instead of
- * breaking the streak. Fully derived from the logs, so every device agrees.
+ * Streak: a day counts when something was logged, a missed day breaks it. Today without
+ * a log keeps the streak alive (still open). Fully derived from the logs, so every device agrees.
  */
-export function streakInfo(dm, today, { freezeStart = null, starterFreezes = 0, maxFreezes = 2, every = 7 } = {}) {
-  const fs = freezeStart || '9999-12-31';
+export function streakInfo(dm, today) {
   const days = [...dm.keys()].filter((d) => dm.get(d).total > 0).sort();
   const res = {
-    current: 0, longest: 0, longestEnd: null, daysLogged: days.length, frozen: new Set(),
-    freezes: 0, nextFreezeIn: every, perDay: new Map(), todayDone: (dm.get(today)?.total || 0) > 0,
-    atRisk: false,
+    current: 0, longest: 0, daysLogged: days.length, todayDone: (dm.get(today)?.total || 0) > 0, atRisk: false,
   };
   if (!days.length) return res;
-  let streak = 0, freezes = 0, since = 0, init = false;
+  let streak = 0;
   for (const d of eachDay(days[0], today)) {
-    if (!init && d >= fs) { freezes = starterFreezes; init = true; }
-    const logged = (dm.get(d)?.total || 0) > 0;
-    if (logged) {
+    if ((dm.get(d)?.total || 0) > 0) {
       streak++;
-      res.perDay.set(d, streak);
-      if (streak > res.longest) { res.longest = streak; res.longestEnd = d; }
-      if (d >= fs && ++since >= every) { since = 0; freezes = Math.min(maxFreezes, freezes + 1); }
-    } else if (d === today) {
-      // still open
-    } else if (d >= fs && freezes > 0 && streak > 0) {
-      freezes--;
-      res.frozen.add(d);
-    } else {
+      res.longest = Math.max(res.longest, streak);
+    } else if (d !== today) {
       streak = 0;
-      since = 0;
     }
   }
   res.current = streak;
-  res.freezes = freezes;
-  res.nextFreezeIn = every - since;
   res.atRisk = !res.todayDone && streak > 0;
   return res;
 }
 
 /**
- * Chorus streak with a penalty quest. A day counts when `activity` reaches `min` minutes.
- * A missed day does not break a running streak at once: the next day becomes a penalty
- * day that needs `min * factor`. Meet it and the missed day is redeemed (streak goes on);
+ * Chorus streak with a catch-up day. A day counts when `activity` reaches `min` minutes.
+ * A missed day does not break a running streak at once: the next day becomes a catch-up
+ * day (state 'penalty') that needs `min * factor`. Meet it and the missed day is redeemed (streak goes on);
  * miss it and the streak breaks (restarting at 1 if that day still reached `min`).
  * Two missed days in a row always break. Derived from the logs only.
  */
@@ -132,13 +115,6 @@ export function chorusInfo(dm, today, { activity = 'phonetic training', min = 5,
   res.current = streak;
   if (res.marks.get(today) === 'done') res.state = 'done';
   return res;
-}
-
-export function weekCompare(dm, today, ws = 1) {
-  const s = startOfWeek(today, ws);
-  const cur = sumRange(dm, s, today);
-  const last = sumRange(dm, addDays(s, -7), addDays(s, -1));
-  return { cur, last, pct: last > 0 ? Math.round((cur / last - 1) * 100) : null };
 }
 
 export const PERIODS = [
@@ -237,18 +213,6 @@ export function recap(dm, range, today, ws = 1) {
     total, active, elapsed, best, top, avg: elapsed ? total / elapsed : 0, prev,
     pct: prev ? Math.round((total / prev - 1) * 100) : null,
   };
-}
-
-export function avgPerDay(dm, today, n = 30) {
-  return sumRange(dm, addDays(today, -(n - 1)), today) / n;
-}
-
-/** Date when `targetMin` total is reached at `perDay` minutes per day, or null. */
-export function forecast(today, curMin, targetMin, perDay) {
-  if (curMin >= targetMin) return { date: null, days: 0, reached: true };
-  if (!(perDay > 0)) return { date: null, days: Infinity, reached: false };
-  const days = Math.ceil((targetMin - curMin) / perDay);
-  return { date: addDays(today, days), days, reached: false };
 }
 
 // ---- Quests (goals) -------------------------------------------------------

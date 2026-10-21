@@ -1,4 +1,4 @@
-"""Import a LingoTrack export ZIP into the Nihongo Hunter data folder.
+"""Import a LingoTrack export ZIP into the Tsuzuku data folder.
 
 Usage:
     python tools/import_lingotrack.py <lingotrack-export.zip> <data-dir>
@@ -37,21 +37,19 @@ ACTIVITY_MAP = {
     "output": ("Output", None),
 }
 
-# name, color, attribute (for the Hunter status window)
+# name, color, attribute (LingoTrack "types" in the export)
 DEFAULT_ACTIVITIES = [
-    ("Immersion", "#34d399", "listen"),
-    ("passive immersion", "#8fb3e8", "listen"),
-    ("Anki", "#e8c170", "memory"),
-    ("Output", "#f472b6", "output"),
-    ("phonetic training", "#a78bfa", "pron"),
-    ("Anki/immersion", "#2dd4bf", "listen"),
-    ("sentence mining", "#fb923c", "memory"),
+    ("Immersion", "#165e83", "listen"),
+    ("passive immersion", "#89c3eb", "listen"),
+    ("Anki", "#d0af4c", "memory"),
+    ("Output", "#e16b8c", "output"),
+    ("phonetic training", "#7058a3", "pron"),
+    ("Anki/immersion", "#7ebea5", "listen"),
+    ("sentence mining", "#c39143", "memory"),
 ]
 
 DEFAULT_SHORTCUTS = [("Anki", 15), ("Immersion", 20), ("Output", 15),
                      ("passive immersion", 20), ("phonetic training", 10)]
-
-SWITCH_DAY = "2026-10-18"
 
 
 def last_sunday(year, month):
@@ -124,8 +122,7 @@ def default_meta(now_ms):
         "shortcuts": [{"id": f"s{i + 1}", "a": a, "m": m, "o": i, "u": now_ms}
                       for i, (a, m) in enumerate(DEFAULT_SHORTCUTS)],
         "quests": [],
-        "settings": {"dayEnd": 0, "weekStart": 1, "freezeStart": SWITCH_DAY,
-                     "starterFreezes": 1, "u": now_ms},
+        "settings": {"dayEnd": 0, "weekStart": 1, "u": now_ms},
         "timer": {"state": "idle", "u": 0},
     }
 

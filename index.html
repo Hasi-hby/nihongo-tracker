@@ -1,27 +1,26 @@
 <!doctype html>
-<html lang="de" data-theme="dark">
+<html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Nihongo Hunter</title>
-<meta name="description" content="Eigener Japanisch-Time-Tracker mit Streak, Statistiken und Hunter-Rängen.">
-<meta name="theme-color" content="#0a0b10">
+<title>Tsuzuku 続く</title>
+<meta name="description" content="Japanisch-Time-Tracker: Streak, Ziele, Chorus-Pflicht und Statistiken.">
+<meta name="theme-color" content="#f7f3ea">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Hunter">
-<link rel="stylesheet" href="styles.css?v=1.6.0">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tsuzuku">
+<link rel="stylesheet" href="styles.css?v=2.0.0">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">日</span><span>Nihongo <b>Hunter</b></span></div>
+  <div class="brand"><span class="brand-seal" aria-hidden="true">続</span><span class="brand-name">Tsuzuku</span></div>
   <nav class="tabs" aria-label="Bereiche">
     <button data-view="home">Heute</button>
     <button data-view="stats">Statistik</button>
-    <button data-view="hunter">Hunter</button>
     <button data-view="logs">Logs</button>
     <button data-view="settings">Einstellungen</button>
   </nav>
@@ -38,9 +37,9 @@
 <nav class="bottomnav" aria-label="Bereiche">
   <button data-view="home"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Heute</span></button>
   <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10h3v10zm6.5 0V4h3v16zM17 20v-7h3v7z"/></svg><span>Statistik</span></button>
-  <button data-view="hunter"><svg viewBox="0 0 24 24"><path d="m12 2 2.6 6.3L21 9l-5 4.4L17.5 20 12 16.6 6.5 20 8 13.4 3 9l6.4-.7z"/></svg><span>Hunter</span></button>
+  <button class="nav-log" data-action="new-log" aria-label="Aktivität loggen"><span><svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></span></button>
   <button data-view="logs"><svg viewBox="0 0 24 24"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg><span>Logs</span></button>
-  <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.3 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.3-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg><span>Mehr</span></button>
+  <button data-view="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.3 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.3-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg><span>Einstellungen</span></button>
 </nav>
 
 <button class="fab" data-action="new-log" aria-label="Aktivität loggen" title="Aktivität loggen (N)">
@@ -77,6 +76,6 @@
     setTimeout(heal, 8000);
   })();
 </script>
-<script type="module" src="js/app.js?v=1.6.0"></script>
+<script type="module" src="js/app.js?v=2.0.0"></script>
 </body>
 </html>

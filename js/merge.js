@@ -111,9 +111,9 @@ export function renameActivity(logs, meta, from, to, now = Date.now(), { chorusD
 /** Defaults for a fresh device. u = 0 so anything already synced wins. */
 export function defaultMeta() {
   const acts = [
-    ['Immersion', '#34d399', 'listen'], ['passive immersion', '#8fb3e8', 'listen'],
-    ['Anki', '#e8c170', 'memory'], ['Output', '#f472b6', 'output'],
-    ['phonetic training', '#a78bfa', 'pron'],
+    ['Immersion', '#165e83', 'listen'], ['passive immersion', '#89c3eb', 'listen'],
+    ['Anki', '#d0af4c', 'memory'], ['Output', '#e16b8c', 'output'],
+    ['phonetic training', '#7058a3', 'pron'],
   ];
   const sc = [['Anki', 15], ['Immersion', 20], ['Output', 15], ['passive immersion', 20], ['phonetic training', 10]];
   return {
@@ -121,7 +121,7 @@ export function defaultMeta() {
     activities: acts.map(([name, color, attr], o) => ({ id: name, name, color, attr, o, u: 0 })),
     shortcuts: sc.map(([a, m], o) => ({ id: 's' + (o + 1), a, m, o, u: 0 })),
     quests: [],
-    settings: { dayEnd: 0, weekStart: 1, freezeStart: null, starterFreezes: 1, u: 0 },
+    settings: { dayEnd: 0, weekStart: 1, u: 0 },
     timer: { state: 'idle', u: 0 },
   };
 }

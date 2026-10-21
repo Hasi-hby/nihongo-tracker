@@ -1,4 +1,4 @@
-# Registers the daily Nihongo Hunter data backup in Windows Task Scheduler.
+# Registers the daily Tsuzuku data backup in Windows Task Scheduler.
 # Runs daily at 21:00 (and catches up if the PC was off). Requires no admin rights.
 # Re-run this script to update the task.
 

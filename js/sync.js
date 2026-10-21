@@ -8,8 +8,8 @@
 // a request is in flight are never lost. Inbox files are merged into the logs on pull and
 // deleted only after the year files holding them were pushed.
 
-import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=1.6.0';
-import { getKV, setKV } from './store.js?v=1.6.0';
+import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=2.0.0';
+import { getKV, setKV } from './store.js?v=2.0.0';
 
 const API = 'https://api.github.com';
 

@@ -1,8 +1,8 @@
 // Export files for switching trackers: plain CSV, an Excel-friendly CSV, the LingoTrack
 // activity_logs.csv format, daily totals, and the full re-importable backup.
 
-import { canonLog } from './merge.js?v=1.6.0';
-import { pad } from './util.js?v=1.6.0';
+import { canonLog } from './merge.js?v=2.0.0';
+import { pad } from './util.js?v=2.0.0';
 
 const BOM = '﻿';
 const csvCell = (v, sep) => {
@@ -20,7 +20,7 @@ const utcStamp = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 // LingoTrack "types" per attribute of an activity
 const LT_TYPES = { listen: 'Listening,Watching', memory: 'Vocabulary', output: 'Speaking', pron: 'Listening,Pronunciation', read: 'Reading' };
 
-export const EXPORT_FILES = ['LIESMICH.txt', 'logs.csv', 'logs_excel.csv', 'lingotrack_activity_logs.csv', 'tage.csv', 'nihongo-hunter-backup.json'];
+export const EXPORT_FILES = ['LIESMICH.txt', 'logs.csv', 'logs_excel.csv', 'lingotrack_activity_logs.csv', 'tage.csv', 'tsuzuku-backup.json'];
 
 /** -> [{ name, data }] for zip() */
 export function buildExport({ logs, meta, now = new Date(), version = '' }) {
@@ -51,10 +51,10 @@ export function buildExport({ logs, meta, now = new Date(), version = '' }) {
     ...[...days.keys()].sort().map((d) => [d, round(days.get(d).total), ...actNames.map((a) => round(days.get(d).by[a] || 0))]),
   ]);
 
-  const backup = JSON.stringify({ app: 'nihongo-hunter', v: 1, exported: now.toISOString(), meta, logs: logs.map(canonLog) });
+  const backup = JSON.stringify({ app: 'tsuzuku', v: 1, exported: now.toISOString(), meta, logs: logs.map(canonLog) });
 
   const readme = [
-    `Nihongo Hunter Export ${version}`.trim(),
+    `Tsuzuku Export ${version}`.trim(),
     `Erstellt: ${localStamp(now.getTime())}`,
     `${live.length} Logs, ${(total / 60).toFixed(1).replace('.', ',')} Stunden, ${days.size} Tage`,
     '',
@@ -66,8 +66,8 @@ export function buildExport({ logs, meta, now = new Date(), version = '' }) {
     'lingotrack_activity_logs.csv   Gleiches Format wie der LingoTrack-Export',
     '                               (id, timestamp_utc, language, action, types, minutes).',
     'tage.csv                       Minuten pro Tag, gesamt und je Aktivität.',
-    'nihongo-hunter-backup.json     Vollständiges Backup inkl. Shortcuts, Quests und Einstellungen.',
-    '                               Lässt sich in Nihongo Hunter unter Einstellungen > "Backup einspielen" laden.',
+    'tsuzuku-backup.json            Vollständiges Backup inkl. Shortcuts, Zielen und Einstellungen.',
+    '                               Lässt sich in Tsuzuku unter Einstellungen > "Backup einspielen" laden.',
     '',
     'Spalten in logs.csv',
     '-------------------',
@@ -86,7 +86,7 @@ export function buildExport({ logs, meta, now = new Date(), version = '' }) {
     { name: 'logs_excel.csv', data: excelCsv },
     { name: 'lingotrack_activity_logs.csv', data: ltCsv },
     { name: 'tage.csv', data: dayCsv },
-    { name: 'nihongo-hunter-backup.json', data: backup },
+    { name: 'tsuzuku-backup.json', data: backup },
   ];
 }
 

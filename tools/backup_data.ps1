@@ -30,7 +30,7 @@ function Toast($title, $text) {
 $out = & git -C $DataDir pull --ff-only 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0) {
     Log "FEHLER git pull ($LASTEXITCODE): $($out.Trim())"
-    Toast "Nihongo Hunter Backup" "git pull fehlgeschlagen, siehe backup\backup.log"
+    Toast "Tsuzuku Backup" "git pull fehlgeschlagen, siehe backup\backup.log"
     exit 1
 }
 
@@ -49,7 +49,7 @@ try {
         if ($count -lt 0.99 * $prev.count -or $minutes -lt 0.99 * $prev.minutes) {
             $msg = "Logs $($prev.count) -> $count, Stunden $([math]::Round($prev.minutes / 60, 1)) -> $([math]::Round($minutes / 60, 1))"
             Log "WARNUNG Daten geschrumpft seit $($prev.date): $msg"
-            Toast "Nihongo Hunter: Daten geschrumpft" "$msg. Alte Staende liegen in der Git-Historie und den Wochen-ZIPs."
+            Toast "Tsuzuku: Daten geschrumpft" "$msg. Alte Staende liegen in der Git-Historie und den Wochen-ZIPs."
         }
     }
     @{ date = (Get-Date -Format s); count = $count; minutes = [math]::Round($minutes, 2) } | ConvertTo-Json | Set-Content $statsFile -Encoding UTF8

@@ -4,9 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aggregate, chorusInfo, dayMap, periodRange, questHistory, questProgress, recap, streakInfo, totals, weekCompare,
+  aggregate, chorusInfo, dayMap, periodRange, questHistory, questProgress, recap, streakInfo, totals,
 } from '../js/stats.js';
-import { levelFor, rankFor } from '../js/hunter.js';
 import { addDays, dayOf, parseDuration } from '../js/util.js';
 
 const logsOn = (days, m = 30, a = 'Immersion') => days.map((d, i) => ({ id: d + i, d, t: 0, a, m, u: 0 }));
@@ -26,32 +25,6 @@ test('a gap breaks the streak but the longest one is kept', () => {
   assert.equal(s.current, 3);
   assert.equal(s.longest, 5);
   assert.equal(s.daysLogged, 8);
-});
-
-test('freezes only apply from freezeStart and bridge a missed day', () => {
-  // gap on 09-06 before freezeStart breaks; gap on 09-20 after it is frozen
-  const days = [...range('2026-09-01', 5), ...range('2026-09-07', 13), ...range('2026-09-21', 3)];
-  const dm = dayMap(logsOn(days));
-  const s = streakInfo(dm, '2026-09-23', { freezeStart: '2026-09-07', starterFreezes: 0 });
-  assert.ok(s.frozen.has('2026-09-20'));
-  assert.ok(!s.frozen.has('2026-09-06'));
-  assert.equal(s.current, 16); // 13 + 3, frozen day does not add
-});
-
-test('no freeze left -> the streak breaks; freezes cap at 2', () => {
-  const dm = dayMap(logsOn(range('2026-01-01', 40)));
-  assert.equal(streakInfo(dm, '2026-02-09', { freezeStart: '2026-01-01' }).freezes, 2);
-  const gap = dayMap(logsOn([...range('2026-01-01', 3), ...range('2026-01-05', 2)]));
-  const s = streakInfo(gap, '2026-01-06', { freezeStart: '2026-01-01', starterFreezes: 0 });
-  assert.equal(s.current, 2);
-});
-
-test('week comparison uses the full previous week (like LingoTrack)', () => {
-  const dm = dayMap([...logsOn(range('2026-10-05', 7), 60), ...logsOn(range('2026-10-12', 2), 210)]);
-  const w = weekCompare(dm, '2026-10-13');
-  assert.equal(w.cur, 420);
-  assert.equal(w.last, 420);
-  assert.equal(w.pct, 0);
 });
 
 test('week buckets start on Monday and aggregate per activity', () => {
@@ -129,12 +102,6 @@ test('duration parsing', () => {
   assert.ok(Number.isNaN(parseDuration('abc')));
 });
 
-test('level and rank at the imported total', () => {
-  assert.equal(levelFor(2598.87).level, 71);
-  assert.equal(rankFor(2598.87).rank.id, 'A');
-  assert.equal(rankFor(4000).rank.id, 'S');
-});
-
 // Compares the imported data with the values the LingoTrack dashboard showed at import time.
 // Runs only next to the private data clone, which holds those values in checks.json.
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'nihongo-tracker-data');
@@ -146,9 +113,8 @@ test('imported data matches the LingoTrack dashboard', { skip: !existsSync(join(
   const t = totals(dm);
   assert.equal(t.count, c.logs);
   assert.equal((t.total / 60).toFixed(1), c.hours);
-  const s = streakInfo(dm, c.today, { freezeStart: c.freezeStart, starterFreezes: 1 });
+  const s = streakInfo(dm, c.today);
   assert.equal(s.current, c.streak);
   assert.equal(s.longest, c.longest);
   assert.equal(s.daysLogged, c.daysLogged);
-  assert.equal(weekCompare(dm, c.today).pct, c.weekPct);
 });

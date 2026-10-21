@@ -1,6 +1,6 @@
 """Log Japanese time without opening the app.
 
-    python tools/log.py Immersion 25 --md "Solo Leveling S1E03"
+    python tools/log.py Immersion 25 --md "Frieren S1E03"
     python tools/log.py Anki 1:30 --date 2026-10-18 --note "nachgetragen"
 
 Writes one file into inbox/ of the data repo clone, commits and pushes it with the clone's
@@ -9,7 +9,7 @@ deletes the inbox file. From other scripts:
 
     sys.path.insert(0, r"C:\\Users\\Nico\\OneDrive\\Desktop\\nihongo-tracker\\tools")
     from log import log
-    log("Immersion", 24, md="Solo Leveling S1E03", src="watch")
+    log("Immersion", 24, md="Frieren S1E03", src="watch")
 """
 
 import argparse
@@ -87,10 +87,10 @@ def log(a, m, *, md=None, note=None, date=None, src="cli", data=DATA):
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    p = argparse.ArgumentParser(description="Nihongo Hunter: Zeit loggen, ohne die App zu öffnen.")
+    p = argparse.ArgumentParser(description="Tsuzuku: Zeit loggen, ohne die App zu öffnen.")
     p.add_argument("activity", help="z. B. Immersion, Anki, Output")
     p.add_argument("minutes", help="z. B. 25, 1:30 oder 1.5h")
-    p.add_argument("--md", help="Medium, z. B. 'Solo Leveling S1E03'")
+    p.add_argument("--md", help="Medium, z. B. 'Frieren S1E03'")
     p.add_argument("--note", help="Notiz")
     p.add_argument("--date", help="Tag (YYYY-MM-DD), Standard: jetzt")
     p.add_argument("--src", default="cli", help="Quelle, Standard: cli")

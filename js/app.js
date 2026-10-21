@@ -1,20 +1,24 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=1.6.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=1.6.0';
-import { Sync } from './sync.js?v=1.6.0';
-import { parseInbox } from './inbox.js?v=1.6.0';
-import * as St from './stats.js?v=1.6.0';
-import * as Hu from './hunter.js?v=1.6.0';
-import * as Ch from './charts.js?v=1.6.0';
-import { rankBadge } from './badge.js?v=1.6.0';
-import { buildExport } from './export.js?v=1.6.0';
-import { zip } from './zip.js?v=1.6.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.0.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.0.0';
+import { Sync } from './sync.js?v=2.0.0';
+import { parseInbox } from './inbox.js?v=2.0.0';
+import * as St from './stats.js?v=2.0.0';
+import * as Ch from './charts.js?v=2.0.0';
+import { buildExport } from './export.js?v=2.0.0';
+import { zip } from './zip.js?v=2.0.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=1.6.0';
+} from './util.js?v=2.0.0';
 
-const VERSION = '1.6.0';
+const VERSION = '2.0.0';
 const $ = (sel, root = document) => root.querySelector(sel);
-const PALETTE = ['#34d399', '#8fb3e8', '#e8c170', '#f472b6', '#a78bfa', '#2dd4bf', '#fb923c', '#f87171', '#a3e635', '#38bdf8'];
+// traditional Japanese colours (和色) for activities without a colour of their own
+const PALETTE = ['#165e83', '#89c3eb', '#d0af4c', '#e16b8c', '#7058a3', '#7ebea5', '#c39143', '#d05a6e', '#5b7e91', '#93b69c'];
+// colours of the first design, swapped once for their 和色 counterparts (colours picked by hand stay)
+const OLD_COLORS = {
+  '#34d399': '#165e83', '#8fb3e8': '#89c3eb', '#e8c170': '#d0af4c', '#f472b6': '#e16b8c', '#a78bfa': '#7058a3',
+  '#2dd4bf': '#7ebea5', '#fb923c': '#c39143', '#f87171': '#d05a6e', '#38bdf8': '#5b7e91', '#a3e635': '#93b69c',
+};
 
 const S = {
   logs: new Map(),
@@ -26,6 +30,7 @@ const S = {
 let cache = { ver: -1 };
 let sync;
 let pendingRender = false;
+let justSealed = false;
 
 function guessDevice() {
   const ua = navigator.userAgent;
@@ -48,6 +53,7 @@ const shortcuts = () => (S.meta.shortcuts || []).filter((s) => !s.x).sort(byOrde
 const quests = () => (S.meta.quests || []).filter((q) => !q.x);
 const timer = () => S.meta.timer || { state: 'idle' };
 const pct = (x) => Math.max(0, Math.min(100, x * 100)).toFixed(1);
+const days = (n) => `${fmtNum(n)} Tag${n === 1 ? '' : 'e'}`;
 const CHORUS_DEFAULTS = { on: true, a: 'phonetic training', m: 5, from: 14, until: 16 };
 const chorusCfg = () => ({ ...CHORUS_DEFAULTS, ...(settings().chorus || {}) });
 const TIMER_WARN_MIN = 180; // longer runs are probably a forgotten timer: ask before logging
@@ -83,29 +89,18 @@ function D() {
   const logs = [...S.logs.values()];
   const live = logs.filter((l) => !l.x);
   const dm = St.dayMap(live);
-  const set = settings();
-  const streak = St.streakInfo(dm, t, { freezeStart: set.freezeStart || t, starterFreezes: set.starterFreezes ?? 1 });
-  const tot = St.totals(dm);
-  const hours = tot.total / 60;
-  const qh = St.questHistory(quests(), dm, t);
-  const firstDay = [...dm.keys()].sort()[0] || t;
   const cc = chorusCfg();
   const chorus = St.chorusInfo(dm, t, { activity: cc.a, min: cc.m });
+  const goals = quests().map((q) => ({ q, p: St.questProgress(q, dm, t, ws()) }));
+  // the day's seal: something logged, chorus done (when on) and every daily goal met
+  const sealed = (dm.get(t)?.total || 0) > 0 && (!cc.on || chorus.state === 'done')
+    && goals.every(({ q, p }) => q.scope !== 'day' || p.complete);
   cache = {
-    ver: S.ver, today: t, logs, live, dm, streak, tot, hours, qh, firstDay, chorus,
-    level: Hu.levelFor(hours), rank: Hu.rankFor(hours),
-    ach: Hu.achievements(dm, streak, live, qh.hist, ws(), chorus, cc.a),
+    ver: S.ver, today: t, logs, live, dm, chorus, goals, sealed,
+    streak: St.streakInfo(dm, t), tot: St.totals(dm), qh: St.questHistory(quests(), dm, t),
+    firstDay: [...dm.keys()].sort()[0] || t,
   };
   return cache;
-}
-
-function reachedDate(dm, minutes) {
-  let cum = 0;
-  for (const d of [...dm.keys()].sort()) {
-    cum += dm.get(d).total;
-    if (cum >= minutes) return d;
-  }
-  return null;
 }
 
 function relDay(d) {
@@ -143,10 +138,11 @@ async function addLog({ a, m, d, t, n, md, src = 'manual' }) {
   const before = D();
   const l = { id: uid(), d: d || today(), t: t || Date.now(), a, m, n, md, src };
   await saveLog(l, { desc: `+${fmtMin(m)} ${a}` });
+  const after = D();
+  justSealed = !before.sealed && after.sealed;
   render();
-  const undo = () => toast(`${fmtMin(m)} ${a} geloggt`, { label: 'Rückgängig', fn: () => deleteLog(l.id, true) });
-  if (celebrate(before, D())) $('#modal').addEventListener('close', undo, { once: true });
-  else undo();
+  toast(`${fmtMin(m)} ${a} geloggt`, { label: 'Rückgängig', fn: () => deleteLog(l.id, true) });
+  milestones(before, after).forEach((note) => toast(note));
   return l;
 }
 
@@ -187,6 +183,13 @@ function setSettings(patch, desc) {
   return setMeta((m) => { m.settings = { ...m.settings, ...patch, u: Date.now() }; }, desc);
 }
 
+/** Swap the first design's activity colours for their 和色 counterparts. Runs once: afterwards nothing matches. */
+function migrateColors() {
+  const old = (S.meta.activities || []).filter((a) => OLD_COLORS[a.color?.toLowerCase()]);
+  if (!old.length) return null;
+  return setMeta((m) => old.forEach((a) => upsertItem('activities', { id: a.id, color: OLD_COLORS[a.color.toLowerCase()] })(m)), 'Farben');
+}
+
 // ---- Timer ----------------------------------------------------------------------
 
 const timerElapsed = (tm = timer()) => (tm.acc || 0) + (tm.state === 'running' ? Date.now() - tm.start : 0);
@@ -223,62 +226,18 @@ async function timerAction(kind) {
   }
 }
 
-// ---- Celebrations -------------------------------------------------------------------
+// ---- Milestones --------------------------------------------------------------------
 
-function celebrate(before, after) {
-  const lines = [];
-  let big = '';
-  if (after.rank.idx > before.rank.idx) {
-    big = 'RANG-AUFSTIEG';
-    lines.push(`Du bist jetzt <b>${esc(after.rank.rank.name)}</b>.`);
-  }
-  if (after.level.level > before.level.level) {
-    big = big || 'LEVEL UP!';
-    lines.push(`Lv. ${before.level.level} → <b>Lv. ${after.level.level}</b>`);
-  }
+/** Short notes for what a new log completed: the day's seal, the chorus duty, goals. */
+function milestones(before, after) {
+  if (!before.sealed && after.sealed) return ['Tag erfüllt 済'];
+  const notes = [];
   if (chorusCfg().on && before.chorus.state !== 'done' && after.chorus.state === 'done') {
-    if (before.chorus.state === 'penalty') {
-      big = big || 'STRAFQUEST ÜBERSTANDEN';
-      lines.push(`Dein Chorus-Streak ist gerettet: <b>${fmtNum(after.chorus.current)} Tage</b>`);
-    } else {
-      big = big || 'QUEST ABGESCHLOSSEN';
-      lines.push(`Daily Quest Chorusing erfüllt · Chorus-Streak <b>${fmtNum(after.chorus.current)}</b>`);
-    }
+    notes.push(before.chorus.state === 'penalty' ? 'Nachgeholt, deine Chorus-Serie läuft weiter' : 'Chorus erledigt');
   }
-  const had = new Set(before.ach.filter((a) => a.date).map((a) => a.id));
-  for (const a of after.ach) {
-    if (a.date && !had.has(a.id)) { big = big || 'TITEL ERHALTEN'; lines.push(`${a.icon} Titel <b>„${esc(a.name)}“</b> erhalten`); }
-  }
-  if (!lines.length) return false;
-  const dlg = $('#modal');
-  dlg.className = 'system-popup';
-  dlg.innerHTML = `<form method="dialog" class="modal-body">
-    <div class="sys-title">System</div>
-    <div class="big">${big}</div>
-    ${lines.map((l) => `<div>${l}</div>`).join('')}
-    <button class="btn btn-system" value="ok" autofocus>Weiter</button></form>`;
-  dlg.showModal();
-  return true;
-}
-
-/** Once per day and device: announce an active penalty quest when the app opens. */
-async function penaltyNotice() {
-  const d = D();
-  if (!chorusCfg().on || d.chorus.state !== 'penalty' || $('#modal').open) return;
-  if ((await getKV('penaltySeen')) === d.today) return;
-  await setKV('penaltySeen', d.today);
-  const dlg = $('#modal');
-  dlg.className = 'system-popup penalty-popup';
-  dlg.innerHTML = `<form method="dialog" class="modal-body">
-    <div class="sys-title">System · Warnung</div>
-    <div class="big">STRAFQUEST</div>
-    <div>Die tägliche Quest <b>„${esc(chorusCfg().a)}“</b> wurde gestern nicht abgeschlossen.</div>
-    <div>Chorus heute <b>${fmtMin(d.chorus.need)}</b>, sonst verlierst du deinen Chorus-Streak von <b>${fmtNum(d.chorus.current)} Tagen</b>.</div>
-    <div class="muted small">Verbleibende Zeit: <span class="num">${fmtClock(msUntilDayEnd())}</span></div>
-    <div class="row" style="justify-content:center"><button class="btn" value="ok">Später</button>
-      <button class="btn btn-penalty" value="log" autofocus>Jetzt loggen</button></div></form>`;
-  dlg.addEventListener('close', () => { if (dlg.returnValue === 'log') chorusLog(); }, { once: true });
-  dlg.showModal();
+  const was = new Map(before.goals.map(({ q, p }) => [q.id, p.complete]));
+  for (const { q, p } of after.goals) if (p.complete && !was.get(q.id)) notes.push(`Ziel erreicht: ${goalName(q)}`);
+  return notes;
 }
 
 function chorusLog() {
@@ -300,43 +259,45 @@ function toast(msg, action = null) {
 // ---- Views ----------------------------------------------------------------------------
 
 const ICON_PATHS = {
-  flame: 'M13.5 2.5c.5 3.2 3.5 5 3.5 9.5a5 5 0 0 1-10 0c0-2.6 1.4-4.3 2.6-5.4.1 1.7.8 2.9 1.9 3.4-.4-3.1.5-5.7 2-7.5z',
   sun: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 2.8l2.1 2.1-1.4 1.4-2.1-2.1zm13.4 13.4 2.1 2.1-1.4 1.4-2.1-2.1zM2.8 19.8l2.1-2.1 1.4 1.4-2.1 2.1zM16.2 6.4l2.1-2.1 1.4 1.4-2.1 2.1z',
   calendar: 'M7 2h2v2h6V2h2v2h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3zm-2 8v9h14v-9zm0-2h14V6H5z',
-  clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3h2v5.2l3.5 2.1-1 1.7L11 13.4z',
-  trophy: 'M6 3h12v2h3v3a4 4 0 0 1-4 4h-.3A6 6 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A6 6 0 0 1 7.3 12H7a4 4 0 0 1-4-4V5h3zm0 4H5v1a2 2 0 0 0 1 1.7zm12 0v2.7A2 2 0 0 0 19 8V7z',
   bolt: 'M13 2 4 14h6l-1 8 9-12h-6z',
   timer: 'M9 1h6v2H9zm3 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm-1 2h2v5h-2z',
   target: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
   grid: 'M3 3h5v5H3zm6.5 0h5v5h-5zM16 3h5v5h-5zM3 9.5h5v5H3zm6.5 0h5v5h-5zm6.5 0h5v5h-5zM3 16h5v5H3zm6.5 0h5v5h-5zm6.5 0h5v5h-5z',
   history: 'M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.05 4.95l-1.41 1.41A9 9 0 1 0 13 3zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z',
+  wave: 'M2 12h2l2-6 3 12 3-14 3 16 3-10 2 2h2v2h-3.2L18 13l-3 10-3-16-3 13-2.8-11L5 14H2z',
   plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
   edit: 'M4 17.25V20h2.75L17.8 8.94l-2.75-2.75zM20.7 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75z',
 };
 const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
 
-function tile(k, v, s = '', { cls = '', ic = 'clock' } = {}) {
-  return `<div class="tile ${cls}"><div class="tile-top"><span class="k">${k}</span><span class="tile-ic">${icon(ic, 16)}</span></div>
-    <div class="v num">${v}</div><div class="s">${s}</div></div>`;
+/** The day's seal: 済 once something is logged, the chorus is done and every daily goal is met. */
+function sealMark(d) {
+  if (d.sealed) {
+    return `<div class="seal-wrap"><div class="seal ${justSealed ? 'stamp-in' : ''}" role="img" aria-label="Heute erfüllt">済</div><span class="seal-cap">erfüllt</span></div>`;
+  }
+  return `<div class="seal-wrap" title="Der Stempel kommt, wenn Chorus und alle Tagesziele erledigt sind">
+    <div class="seal seal-empty" aria-hidden="true"></div><span class="seal-cap">offen</span></div>`;
 }
 
-function equippedTitle(d) {
-  const got = d.ach.filter((a) => a.date);
-  return got.find((a) => a.id === settings().title) || got.sort((a, b) => (a.date < b.date ? 1 : -1))[0] || null;
-}
-
-function hunterCard(d) {
-  const r = d.rank, L = d.level, title = equippedTitle(d);
-  return `<button class="hero" data-view="hunter" style="--rank:${r.rank.color}">
-    <div class="hero-emblem">${rankBadge(r.rank, r.idx, { size: 116 })}<span class="hero-rank">${esc(r.rank.name)}</span></div>
-    <div class="hero-main">
-      <div class="hero-label">Hunter${title ? ` · <span class="hero-title">${title.icon} ${esc(title.name)}</span>` : ''}</div>
-      <div class="hero-name"><h1>${esc(settings().name || 'Hunter')}</h1><span class="lvl">LV. ${L.level}</span></div>
-      <div class="xp"><div class="xp-bar"><i style="width:${pct(L.progress)}%"></i></div>
-        <div class="xp-meta num"><span>XP ${fmtNum(d.tot.total)} / ${fmtNum(L.next * 60)}</span><span>Lv. ${L.level + 1} in ${fmtH(L.toNext * 60)}</span></div></div>
-      ${r.next ? `<div class="hero-next">Nächster Rang: <b>${esc(r.next.name)}</b> in ${fmtH(r.toNext * 60)}
-        <span class="mini-bar"><i style="width:${pct(r.progress)}%"></i></span></div>` : ''}
-    </div></button>`;
+/** Top of the home page: streak, today and this week, a weekly goal, and the day's seal. */
+function headCard(d) {
+  const s = d.streak;
+  const week = St.sumRange(d.dm, startOfWeek(d.today, ws()), d.today);
+  const wg = d.goals.find(({ q }) => q.scope === 'week');
+  const record = s.current > 0 && s.current >= s.longest;
+  return `<section class="card head-card">
+    <div class="head-main">
+      <div class="head-streak"><b class="num">${fmtNum(s.current)}</b><span>${s.current === 1 ? 'Tag' : 'Tage'} am Stück</span></div>
+      <div class="muted small">${record ? 'Rekord' : `Rekord ${days(s.longest)}`} · ${fmtH(d.tot.total)} gesamt</div>
+      <div class="head-today">heute <b class="num">${fmtMin(d.dm.get(d.today)?.total || 0)}</b> · Woche <b class="num">${fmtH(week)}</b></div>
+      ${wg ? `<div class="head-goal"><div class="head-goal-top small"><span>${esc(goalName(wg.q))}</span>
+          <span class="num">${fmtH(wg.p.done)} / ${fmtH(wg.p.target)}</span></div>
+        <div class="bar ${wg.p.complete ? 'done' : ''}"><i style="width:${pct(wg.p.pct)}%"></i></div></div>` : ''}
+      ${s.atRisk ? '<div class="head-risk">Heute ist noch nichts geloggt. Ohne Log endet die Serie heute Nacht.</div>' : ''}
+    </div>
+    ${sealMark(d)}</section>`;
 }
 
 function logItem(l, { date = true } = {}) {
@@ -349,14 +310,11 @@ function logItem(l, { date = true } = {}) {
 }
 
 const scopeOf = (q) => St.QUEST_SCOPES.find((s) => s.id === q.scope) || St.QUEST_SCOPES[0];
+const goalName = (q) => q.name || `${q.a || 'Gesamt'}: ${fmtMin(q.m)}${scopeOf(q).per}`;
+const GOAL_TITLES = { day: 'Tagesziele', week: 'Wochenziele', month: 'Monatsziele' };
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
-function questLabel(q) {
-  return q.name ? esc(q.name) : `${esc(q.a || 'Gesamt')}: ${fmtMin(q.m)}${scopeOf(q).per}`;
-}
-
-const QUEST_TITLES = { day: 'Daily Quest', week: 'Weekly Quest', month: 'Monthly Quest' };
-
-/** Hunter page: chorus streak stats and the last five weeks as a small calendar. */
+/** Statistics page: chorus streak numbers and the last five weeks as a small calendar. */
 function chorusCard(d) {
   const cc = chorusCfg();
   if (!cc.on) return '';
@@ -367,92 +325,92 @@ function chorusCard(d) {
     if (day === d.today) st = c.state === 'done' ? 'done' : c.state === 'penalty' ? 'penalty' : 'today';
     else if (day > d.today) st = 'future';
     else if (!st && c.first && day >= c.first) st = 'missed';
-    const label = { done: 'erfüllt', redeemed: 'gesühnt (Strafquest bestanden)', missed: 'verpasst', penalty: 'Strafquest heute', today: 'heute offen' }[st] || '';
+    const label = { done: 'erledigt', redeemed: 'nachgeholt', missed: 'verpasst', penalty: 'heute Nachholtag', today: 'heute offen' }[st] || '';
     const m = d.dm.get(day)?.by[cc.a] || 0;
     return `<i class="cc-${st || 'none'}" title="${fmtDate(day, { weekday: true })}${label ? ` · ${label}` : ''}${m ? ` · ${fmtMin(m)}` : ''}">${+day.slice(8)}</i>`;
   }).join('');
   const wd = [...eachDay(start, addDays(start, 6))].map((x) => `<b>${WD[new Date(`${x}T12:00`).getDay()]}</b>`).join('');
-  return `<div class="card"><div class="card-head"><h2>${icon('flame')} Chorus</h2><span class="sub">Daily Quest: ${fmtMin(cc.m)} ${esc(cc.a)} · Strafquest doppelt</span></div>
+  return `<div class="card"><div class="card-head"><h2>${icon('wave')} Chorus</h2><span class="sub">täglich ${fmtMin(cc.m)} ${esc(cc.a)} · verpasst = am nächsten Tag doppelt</span></div>
     <div class="cols-2">
       <div class="stat-list">
-        <div class="stat-row"><span>Aktueller Chorus-Streak</span><b>${fmtNum(c.current)} Tage</b></div>
-        <div class="stat-row"><span>Längster Chorus-Streak</span><b>${fmtNum(c.longest)} Tage</b></div>
-        <div class="stat-row"><span>Tage mit erfüllter Quest</span><b>${fmtNum(c.daysDone)}</b></div>
-        <div class="stat-row"><span>Strafquests bestanden</span><b>${fmtNum(c.redeemedCount)}</b></div>
+        <div class="stat-row"><span>Aktuelle Serie</span><b>${days(c.current)}</b></div>
+        <div class="stat-row"><span>Längste Serie</span><b>${days(c.longest)}</b></div>
+        <div class="stat-row"><span>Tage erledigt</span><b>${fmtNum(c.daysDone)}</b></div>
+        <div class="stat-row"><span>Nachgeholt</span><b>${fmtNum(c.redeemedCount)}</b></div>
         <div class="stat-row"><span>Chorusing gesamt</span><b>${fmtH(c.totalMin)}</b></div>
       </div>
       <div><div class="ccal">${wd}${cells}</div>
-        <div class="ccal-legend small muted"><span><i class="cc-done"></i>erfüllt</span><span><i class="cc-redeemed"></i>gesühnt</span>
-          <span><i class="cc-missed"></i>verpasst</span><span><i class="cc-penalty"></i>Strafquest</span></div></div>
+        <div class="ccal-legend small muted"><span><i class="cc-done"></i>erledigt</span><span><i class="cc-redeemed"></i>nachgeholt</span>
+          <span><i class="cc-missed"></i>verpasst</span><span><i class="cc-penalty"></i>Nachholtag</span></div></div>
     </div></div>`;
 }
-const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
-/** The chorus daily quest / penalty quest, Solo-Leveling style. */
+/** Today's chorus duty, or the catch-up day after a missed one. */
 function chorusBlock(d) {
   const cc = chorusCfg();
   if (!cc.on) return '';
   const c = d.chorus, need = c.need, done = c.doneToday;
-  const hour = new Date().getHours();
-  const streakTxt = `${icon('flame', 14)} Chorus-Streak <b class="num">${fmtNum(c.current)}</b> Tag${c.current === 1 ? '' : 'e'} · Rekord ${fmtNum(c.longest)}`;
-  const logBtn = `<button class="btn btn-sm ${c.state === 'penalty' ? 'btn-penalty' : 'btn-system'}" data-action="chorus-log">${icon('plus', 14)} Jetzt loggen</button>`;
-  const bar = `<div class="bar ${c.state === 'done' ? 'green' : ''}"><i style="width:${pct(done / need)}%"></i></div>`;
+  const serie = `Chorus-Serie <b class="num">${fmtNum(c.current)}</b> Tag${c.current === 1 ? '' : 'e'} · Rekord ${fmtNum(c.longest)}`;
+  const logBtn = `<button class="btn btn-sm ${c.state === 'penalty' ? 'btn-seal' : 'btn-primary'}" data-action="chorus-log">${icon('plus', 14)} Jetzt loggen</button>`;
+  const bar = `<div class="bar"><i style="width:${pct(done / need)}%"></i></div>`;
 
   if (c.state === 'done') {
-    return `<div class="sys chorus-q is-done"><div class="cq-head"><div class="sys-title">Daily Quest · ${esc(cc.a)}</div>
-      <span class="cq-ok">Abgeschlossen ✓</span></div>
-      <div class="cq-sub">${streakTxt} · heute ${fmtMin(done)}</div></div>`;
+    return `<div class="card chorus-q is-done"><span class="mini-seal" aria-hidden="true">済</span>
+      <div><b>Chorus erledigt</b> <span class="muted small">· heute ${fmtMin(done)} · ${serie}</span></div></div>`;
   }
   if (c.state === 'penalty') {
-    return `<div class="sys chorus-q penalty"><div class="cq-head"><div class="sys-title">Strafquest</div>
+    return `<div class="card chorus-q catchup"><div class="cq-head"><h2>Nachholtag</h2>
       <span class="cq-count num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</span></div>
-      <div class="cq-text">Die tägliche Quest wurde gestern nicht abgeschlossen. Chorus heute <b>${fmtMin(need)}</b>, sonst ist dein
-        Chorus-Streak von <b>${fmtNum(c.current)} Tag${c.current === 1 ? '' : 'en'}</b> verloren.</div>
+      <div class="cq-text">Gestern kein Chorus. Heute <b>${fmtMin(need)}</b>, dann zählt gestern mit. Sonst endet deine
+        Chorus-Serie von <b>${fmtNum(c.current)} Tag${c.current === 1 ? '' : 'en'}</b>.</div>
       <div class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</div>${bar}
-      <div class="cq-foot"><span class="cq-sub">${streakTxt}</span>${logBtn}</div></div>`;
+      <div class="cq-foot"><span class="cq-sub">${serie}</span>${logBtn}</div></div>`;
   }
   // open
-  let hint = `Heute ab ${cc.from} Uhr ist Chorus-Zeit.`, cls = '';
-  if (hour >= cc.from && hour < cc.until) { hint = `⏰ Chorus-Zeit! ${fmtMin(need)}, dann ist die Daily Quest erledigt.`; cls = 'in-window'; }
+  const hour = new Date().getHours();
+  let hint = `Ab ${cc.from} Uhr ist Chorus-Zeit.`, cls = '';
+  if (hour >= cc.from && hour < cc.until) { hint = `Jetzt ist Chorus-Zeit, ${fmtMin(need)} genügen.`; cls = 'in-window'; }
   else if (hour >= cc.until) {
     hint = c.current > 0
-      ? `Zeitfenster vorbei – noch <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b> bis zur Strafzone.`
-      : `Zeitfenster vorbei – heute geht noch was: <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>.`;
+      ? `Zeitfenster vorbei. Noch <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>, sonst wird morgen ein Nachholtag.`
+      : `Zeitfenster vorbei, heute geht noch was: <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>.`;
     cls = 'late';
   }
-  return `<div class="sys chorus-q ${cls}"><div class="cq-head"><div class="sys-title">Daily Quest · ${esc(cc.a)}</div>
+  return `<div class="card chorus-q ${cls}"><div class="cq-head"><h2>Chorus heute</h2>
       <span class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</span></div>
     ${bar}<div class="cq-hint">${hint}</div>
-    <div class="cq-foot"><span class="cq-sub">${streakTxt}</span>${logBtn}</div></div>`;
+    <div class="cq-foot"><span class="cq-sub">${serie}</span>${logBtn}</div></div>`;
 }
 
-function questsPanel(d) {
-  const qs = quests();
-  const row = (q) => {
-    const p = St.questProgress(q, d.dm, d.today, ws());
-    const left = p.target - p.done;
-    return `<button class="quest ${p.complete ? 'done' : ''}" data-action="quest-edit" data-id="${esc(q.id)}">
-      <div class="quest-top"><span class="quest-name">${questLabel(q)}</span>
+function shortcutsCard() {
+  return `<div class="card"><div class="card-head"><h2>${icon('bolt')} Schnell loggen</h2>
+      <button class="btn btn-sm btn-ghost" data-action="goto-settings" data-anchor="shortcuts">${icon('edit', 14)} Bearbeiten</button></div>
+    <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="sc" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
+      <b>${esc(sc.a)}</b><span class="num">${fmtMin(sc.m)}</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}</button>`).join('')}
+      <button class="sc sc-add" data-action="new-log"><b>${icon('plus', 16)} Aktivität</b><span>frei eintragen</span><kbd>N</kbd></button></div></div>`;
+}
+
+function goalsPanel(d) {
+  const row = ({ q, p }) => `<button class="quest ${p.complete ? 'done' : ''}" data-action="quest-edit" data-id="${esc(q.id)}">
+      <div class="quest-top"><span class="quest-name">${esc(goalName(q))}</span>
         <span class="num quest-amt">${fmtMin(p.done)} / ${fmtMin(p.target)}</span></div>
-      <div class="bar ${p.complete ? 'green' : ''}"><i style="width:${pct(p.pct)}%"></i></div>
-      <div class="quest-sub">${p.complete ? 'Abgeschlossen' : `noch ${fmtMin(left)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
-  };
-  const head = (title) => `<div class="sys-head"><div class="sys-title">${title}</div>
-    <button class="btn btn-sm btn-system" data-action="quest-new">${icon('plus', 14)} Quest</button></div>`;
-  if (!qs.length) {
-    return `<div class="sys">${head('Quests')}
-      <p class="muted small" style="margin:0 0 10px">Lege deine eigenen Ziele an, für den Tag, die Woche oder den Monat. Oder nimm einen Vorschlag:</p>
+      <div class="bar ${p.complete ? 'done' : ''}"><i style="width:${pct(p.pct)}%"></i></div>
+      <div class="quest-sub">${p.complete ? 'Erreicht' : `noch ${fmtMin(p.target - p.done)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
+  const head = `<div class="card-head"><h2>${icon('target')} Ziele</h2>
+    <button class="btn btn-sm btn-ghost" data-action="quest-new">${icon('plus', 14)} Ziel</button></div>`;
+  if (!d.goals.length) {
+    return `<div class="card">${head}
+      <p class="muted small" style="margin:0 0 10px">Eigene Ziele für den Tag, die Woche oder den Monat. Oder nimm einen Vorschlag:</p>
       <div class="row">
         <button class="btn btn-sm" data-action="quest-suggest" data-scope="day" data-a="" data-m="180">Täglich 3 h gesamt</button>
         <button class="btn btn-sm" data-action="quest-suggest" data-scope="day" data-a="Anki" data-m="15">Anki 15 min / Tag</button>
         <button class="btn btn-sm" data-action="quest-suggest" data-scope="week" data-a="" data-m="1500">25 h / Woche</button>
       </div></div>`;
   }
-  const groups = St.QUEST_SCOPES.map((s) => [s.id, qs.filter((q) => q.scope === s.id)]).filter(([, l]) => l.length);
-  return `<div class="sys">
-    ${groups.map(([scope, list], i) => `${i ? `<div class="sys-title" style="margin-top:14px">${QUEST_TITLES[scope]}</div>` : head(QUEST_TITLES[scope])}
-      ${list.map(row).join('')}`).join('')}
-    ${qs.some((q) => q.scope === 'day') ? `<div class="quest-streak">${icon('flame', 14)} Daily Quests erfüllt: <b class="num">${d.qh.streak}</b> Tage in Folge · Bestwert ${d.qh.best}</div>` : ''}
+  const groups = St.QUEST_SCOPES.map((s) => [s.id, d.goals.filter(({ q }) => q.scope === s.id)]).filter(([, l]) => l.length);
+  return `<div class="card">${head}
+    ${groups.map(([scope, list]) => `<div class="goal-group">${GOAL_TITLES[scope]}</div>${list.map(row).join('')}`).join('')}
+    ${d.goals.some(({ q }) => q.scope === 'day') ? `<div class="quest-streak">Tagesziele erfüllt: <b class="num">${d.qh.streak}</b> Tage in Folge · Bestwert ${d.qh.best}</div>` : ''}
   </div>`;
 }
 
@@ -515,51 +473,34 @@ function todayCard(d) {
       <div class="today-donut">${Ch.donut(list.map((a) => ({ label: a.name, value: by[a.name], color: a.color })), { size: 176, stroke: 22, center: fmtMin(total), sub: `${count} Logs` })}
         ${share != null ? `<div class="today-share ${share >= 100 ? 'up' : ''}">${share >= 100 ? '✓ ' : ''}${share} % von deinem Ø-${unit}
           <span class="muted">(${fmtMin(refTotal)})</span></div>` : ''}</div>
-      <div class="today-list">${rows || `<div class="muted">${week ? 'Diese Woche' : 'Heute'} ist noch nichts geloggt. Tippe unten auf einen Shortcut.</div>`}</div>
+      <div class="today-list">${rows || `<div class="muted">${week ? 'Diese Woche' : 'Heute'} ist noch nichts geloggt. Tippe oben auf einen Shortcut.</div>`}</div>
     </div></div>`;
 }
 
 function heatCard(d) {
   const year = S.ui.heatYear || +d.today.slice(0, 4);
   const firstYear = +d.firstDay.slice(0, 4);
-  return `<div class="card"><div class="card-head"><h2>${icon('grid')} Tracking-Heatmap</h2>
+  return `<div class="card"><div class="card-head"><h2>${icon('grid')} Heatmap</h2>
       <div class="row"><button class="btn btn-sm" data-action="heat" data-dir="-1" ${year <= firstYear ? 'disabled' : ''}>←</button>
       <b class="num">${year}</b><button class="btn btn-sm" data-action="heat" data-dir="1" ${year >= +d.today.slice(0, 4) ? 'disabled' : ''}>→</button></div></div>
-    <div class="scroll-x" id="heatScroll">${Ch.heatmap(d.dm, year, { today: d.today, frozen: d.streak.frozen })}</div>
+    <div class="scroll-x" id="heatScroll">${Ch.heatmap(d.dm, year, { today: d.today })}</div>
     <div class="row small muted" style="margin-top:8px"><span class="heat-legend">weniger
       ${[0.22, 0.4, 0.6, 0.8, 1].map((o) => `<i style="opacity:${o}"></i>`).join('')} mehr (8 h+)</span>
-      <span class="heat-legend"><i style="background:var(--frozen)"></i> Freeze</span>
       <span class="spacer"></span><span>Tag antippen zeigt seine Logs</span></div></div>`;
 }
 
 function viewHome() {
-  const d = D(), s = d.streak, wc = St.weekCompare(d.dm, d.today, ws());
-  const tday = d.dm.get(d.today);
+  const d = D();
   const recent = [...d.live].sort((a, b) => b.t - a.t).slice(0, 6);
-  const record = s.current > 0 && s.current >= s.longest;
-  const wcTxt = wc.pct == null ? 'erste Woche' : `<span class="${wc.pct >= 0 ? 'up' : 'down'}">${wc.pct >= 0 ? '+' : ''}${wc.pct} %</span> ggü. letzter Woche`;
   return `<div class="grid">
-    ${hunterCard(d)}
-    ${chorusBlock(d)}
-    ${!S.device.token && !d.live.length ? `<div class="sys"><div class="sys-title">Willkommen, Hunter</div>
+    ${headCard(d)}
+    ${!S.device.token && !d.live.length ? `<div class="card"><div class="card-head"><h2>Willkommen</h2></div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
-      <button class="btn btn-system" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
-    ${s.atRisk ? `<div class="alert"><span class="alert-ic">${icon('flame', 22)}</span><div><b>Streak in Gefahr.</b> Heute ist noch nichts geloggt.
-      ${s.freezes ? `${s.freezes} Freeze${s.freezes > 1 ? 's' : ''} auf Vorrat würde${s.freezes > 1 ? 'n' : ''} dich retten.` : 'Kein Freeze auf Vorrat.'}</div></div>` : ''}
-    <div class="tiles">
-      ${tile('Streak', `${fmtNum(s.current)}<small>Tage</small>`, `${record ? 'Rekord' : `Rekord ${fmtNum(s.longest)}`} · ❄ ${s.freezes} Freeze${s.freezes === 1 ? '' : 's'}`, { cls: 'tile-streak', ic: 'flame' })}
-      ${tile('Heute', fmtMin(tday?.total || 0), `${tday?.count || 0} Logs`, { ic: 'sun' })}
-      ${tile('Diese Woche', fmtH(wc.cur), wcTxt, { ic: 'calendar' })}
-      ${tile('Gesamt', fmtH(d.tot.total), `${fmtNum(d.tot.count)} Logs`, { ic: 'clock' })}
-      ${tile('Längster Streak', `${fmtNum(s.longest)}<small>Tage</small>`, `${fmtNum(s.daysLogged)} Tage geloggt`, { ic: 'trophy' })}
-    </div>
+      <button class="btn btn-primary" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
+    ${chorusBlock(d)}
+    <div class="cols-2">${shortcutsCard()}${goalsPanel(d)}</div>
     ${todayCard(d)}
-    <div class="card"><div class="card-head"><h2>${icon('bolt')} Shortcuts</h2>
-      <button class="btn btn-sm btn-ghost" data-action="goto-settings" data-anchor="shortcuts">${icon('edit', 14)} Bearbeiten</button></div>
-      <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="sc" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
-        <b>${esc(sc.a)}</b><span class="num">${fmtMin(sc.m)}</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}</button>`).join('')}
-        <button class="sc sc-add" data-action="new-log"><b>${icon('plus', 16)} Aktivität</b><span>frei eintragen</span><kbd>N</kbd></button></div></div>
-    <div class="cols-2">${timerCard()}${questsPanel(d)}</div>
+    ${timerCard()}
     ${heatCard(d)}
     <div class="card"><div class="card-head"><h2>${icon('history')} Letzte Aktivität</h2><button class="btn btn-sm btn-ghost" data-view="logs">Alle Logs →</button></div>
       <div class="list">${recent.length ? recent.map((l) => logItem(l)).join('') : '<p class="muted">Noch keine Logs.</p>'}</div></div>
@@ -589,7 +530,7 @@ function viewStats() {
           <div class="legend" style="flex:1;min-width:180px">${list.map((a) => `<div class="legend-row"><span class="sw" style="background:${a.color}"></span>
             <span>${esc(a.name)}</span><span class="num">${fmtH(agg.by[a.name])}</span><span class="pct num">${Math.round((agg.by[a.name] / agg.total) * 100)} %</span></div>`).join('') || '<span class="muted">Keine Logs in diesem Zeitraum.</span>'}</div>
         </div>
-        <div class="sys"><div class="sys-title">${RECAP_TITLE[p]}</div><div class="stat-list">
+        <div class="recap"><h3>${RECAP_TITLE[p]}</h3><div class="stat-list">
           <div class="stat-row"><span>Gesamt</span><b>${fmtH(rc.total)}</b></div>
           ${rc.pct != null ? `<div class="stat-row"><span>ggü. gleichem Zeitraum davor</span><b class="${rc.pct >= 0 ? 'up' : 'down'}">${rc.pct >= 0 ? '+' : ''}${rc.pct} %</b></div>` : ''}
           <div class="stat-row"><span>Ø pro Tag</span><b>${fmtMin(rc.avg)}</b></div>
@@ -600,6 +541,7 @@ function viewStats() {
       </div></div>
     <div class="card"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · gestrichelt: kumuliert (rechte Achse)</span></div>
       <div class="scroll-x" id="barsBox" data-range="1"></div></div>
+    ${chorusCard(d)}
     <div class="card"><div class="card-head"><h2>Aktivitäten</h2></div><div class="list">
       ${list.map((a) => `<div class="item"><span class="dot" style="background:${a.color}"></span><div class="what"><b>${esc(a.name)}</b>
         <div class="note">${fmtNum(counts[a.name] || 0)} Logs · Ø ${fmtMin(agg.by[a.name] / (counts[a.name] || 1))} pro Log</div></div>
@@ -618,61 +560,13 @@ function drawBars() {
   box.scrollLeft = box.scrollWidth;
 }
 
-function viewHunter() {
-  const d = D(), set = settings(), r = d.rank, L = d.level;
-  const attrs = Hu.attributes(d.tot.by, S.meta.activities || []);
-  const title = equippedTitle(d);
-  const avg = St.avgPerDay(d.dm, d.today, 30);
-  const cur = d.tot.total;
-  const fc = (min) => St.forecast(d.today, cur, min, avg);
-  const fcRow = (label, min) => {
-    const f = fc(min);
-    return `<div class="stat-row"><span>${label}</span><b>${f.reached ? 'erreicht' : f.date ? `${fmtDate(f.date)} <span class="muted small">(in ${fmtNum(f.days)} Tagen)</span>` : '–'}</b></div>`;
-  };
-  const got = d.ach.filter((a) => a.date).length;
-  return `<div class="grid">
-    <div class="cols-2">
-      <div class="sys"><div class="sys-title">Status</div>
-        <div class="hunter-card" style="margin-bottom:12px">${rankBadge(r.rank, r.idx, { size: 88 })}
-          <div class="hunter-main"><div class="hunter-name"><h1>${esc(set.name || 'Hunter')}</h1><span class="lvl">Lv. ${L.level}</span></div>
-          <div class="muted small">${esc(r.rank.name)}${title ? ` · Titel: ${title.icon} ${esc(title.name)}` : ''}</div>
-          <div class="bar"><i style="width:${pct(L.progress)}%"></i></div>
-          <div class="small muted">XP ${fmtNum(cur)} · Lv. ${L.level + 1} bei ${fmtNum(L.next * 60)} XP</div></div></div>
-        <div class="row" style="justify-content:center">${Ch.radar(attrs)}</div>
-        <div class="stat-list">${attrs.map((a) => `<div class="stat-row"><span>${a.name} <span class="muted small">(${fmtH(a.hours * 60)})</span></span><b>${a.stat}</b></div>`).join('')}</div>
-        <p class="muted small" style="margin:10px 0 0">Attribute = 10 · √Stunden. Welche Aktivität welches Attribut trainiert, stellst du unter Einstellungen → Aktivitäten ein.</p>
-      </div>
-      <div class="card"><div class="card-head"><h2>Hunter-Ränge</h2><span class="sub">nach Gesamtstunden</span></div><div class="ranks">
-        ${Hu.RANKS.map((x, i) => {
-          const reached = d.hours >= x.h;
-          const when = reached ? (x.h ? reachedDate(d.dm, x.h * 60) : d.firstDay) : null;
-          const f = reached ? null : fc(x.h * 60);
-          return `<div class="rank-row ${reached ? 'reached' : ''} ${i === r.idx ? 'current' : ''}">${rankBadge(x, i, { size: 46, animated: i === r.idx })}
-            <div><b>${esc(x.name)}</b>${i === r.idx ? ' <span class="title-chip">aktuell</span>' : ''}<div class="muted small">ab ${fmtNum(x.h)} h</div></div>
-            <div class="small muted" style="text-align:right">${reached ? `seit ${fmtDate(when)}` : `noch ${fmtH((x.h - d.hours) * 60)}${f?.date ? `<br>~ ${fmtDate(f.date)}` : ''}`}</div></div>`;
-        }).join('')}</div></div>
-    </div>
-    ${chorusCard(d)}
-    <div class="card"><div class="card-head"><h2>Prognose</h2><span class="sub">bei deinem Schnitt der letzten 30 Tage: ${fmtMin(avg)} pro Tag</span></div>
-      <div class="stat-list">
-        ${fcRow(`Lv. ${L.level + 1}`, L.next * 60)}
-        ${r.next ? fcRow(r.next.name, r.next.h * 60) : ''}
-        ${[3000, 5000, 10000].filter((h) => h * 60 > cur).slice(0, 3).map((h) => fcRow(`${fmtNum(h)} Stunden`, h * 60)).join('')}
-      </div></div>
-    <div class="card"><div class="card-head"><h2>Titel &amp; Erfolge</h2><span class="sub">${got} / ${d.ach.length} freigeschaltet · antippen, um einen Titel zu tragen</span></div>
-      <div class="ach-grid">${d.ach.map((a) => `<button class="ach ${a.date ? '' : 'locked'} ${title?.id === a.id ? 'equipped' : ''}" data-action="equip" data-id="${a.id}" ${a.date ? '' : 'disabled'} style="text-align:left">
-        <span class="i">${a.icon}</span><b>${esc(a.name)}</b><span class="muted small">${esc(a.desc)}</span>
-        <div class="small ${a.date ? '' : 'muted'}">${a.date ? fmtDate(a.date) : 'gesperrt'}</div></button>`).join('')}</div></div>
-  </div>`;
-}
-
 function viewLogs() {
   return `<div class="grid"><div class="card">
     <div class="row" style="margin-bottom:6px">
       <input type="search" id="logQ" placeholder="Suchen (Aktivität, Notiz, Medium)…" value="${esc(S.ui.logQ)}" style="flex:2;min-width:180px">
       <select id="logA" style="flex:1;min-width:150px"><option value="">Alle Aktivitäten</option>
         ${chartActs(D().tot.by).map((a) => `<option ${S.ui.logA === a.name ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
-      ${S.ui.logDay ? `<button class="btn btn-sm btn-system" data-action="clear-day">${fmtDate(S.ui.logDay, { weekday: true })} ✕</button>` : ''}
+      ${S.ui.logDay ? `<button class="btn btn-sm btn-primary" data-action="clear-day">${fmtDate(S.ui.logDay, { weekday: true })} ✕</button>` : ''}
     </div>
     <div id="logList"></div></div></div>`;
 }
@@ -699,7 +593,6 @@ function renderLogList() {
 }
 
 const HOURS = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? 'selected' : ''}>${h}:00 Uhr</option>`).join('');
-const ATTR_OPTS = (sel) => Hu.ATTRS.map((a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${a.name}</option>`).join('');
 const ACT_OPTS = (sel, withAll = false) => (withAll ? `<option value="">Gesamt (alle)</option>` : '')
   + acts().map((a) => `<option ${a.name === sel ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
 
@@ -730,7 +623,7 @@ function viewSettings() {
         ${S.device.token ? '<span class="spacer"></span><button class="btn btn-danger btn-sm" data-action="sync-disconnect">Token entfernen</button>' : ''}</div>
       <details class="guide" style="margin-top:14px" ${S.device.token ? '' : 'open'}><summary>So erstellst du einen Token (einmal pro Gerät)</summary><ol>
         <li>Öffne <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → Fine-grained token erstellen</a> (eingeloggt als <b>Hasi-hby</b>).</li>
-        <li>Name z. B. „Hunter ${esc(S.device.name)}“, Ablaufdatum nach Wunsch (max. 1 Jahr oder „No expiration“).</li>
+        <li>Name z. B. „Tsuzuku ${esc(S.device.name)}“, Ablaufdatum nach Wunsch (max. 1 Jahr oder „No expiration“).</li>
         <li><b>Repository access</b> → „Only select repositories“ → <code>nihongo-tracker-data</code>.</li>
         <li><b>Permissions</b> → Repository permissions → <b>Contents: Read and write</b>. Sonst nichts.</li>
         <li>„Generate token“, kopieren, oben einfügen und „Verbinden &amp; testen“ drücken.</li>
@@ -741,7 +634,7 @@ function viewSettings() {
       <p class="muted small" style="margin:0 0 12px">Alles, was eine Datei in <code>inbox/</code> im Daten-Repo ablegt, wird beim nächsten Sync ein normaler Log, auch wenn die App gerade zu ist.
         Format: <code>{"a":"Immersion","m":20,"md":"…","t":"…","src":"siri"}</code>, Pflicht sind nur <code>a</code> (Aktivität) und <code>m</code> (Minuten).</p>
       <details class="guide"><summary>iOS-Kurzbefehl einrichten</summary><ol>
-        <li>Eigenen <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained Token</a> „Hunter Kurzbefehl“: nur <code>${esc(S.device.repo)}</code>, <b>Contents: Read and write</b>.</li>
+        <li>Eigenen <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained Token</a> „Tsuzuku Kurzbefehl“: nur <code>${esc(S.device.repo)}</code>, <b>Contents: Read and write</b>.</li>
         <li>Kurzbefehle-App → <b>+</b> → <b>„Nach Eingabe fragen“</b> (Zahl, „Wie viele Minuten?“). Für einen 1-Tipp-Log stattdessen eine feste Zahl nehmen.</li>
         <li><b>„Wörterbuch“</b>: <code>a</code> = Immersion, <code>m</code> = Eingabe (Zahl), <code>t</code> = Aktuelles Datum (Format ISO 8601), <code>src</code> = siri, optional <code>md</code> = Medium.</li>
         <li><b>„Base64-Codierung“</b> auf das Wörterbuch, Zeilenumbrüche: <i>Keine</i>.</li>
@@ -750,7 +643,7 @@ function viewSettings() {
         <li>Starten per Siri (Name des Kurzbefehls), Home-Bildschirm-Widget, Apple Watch oder NFC-Automation.</li>
       </ol></details>
       <details class="guide" style="margin-top:10px"><summary>Vom PC oder aus eigenen Skripten</summary>
-        <code class="code-block">python tools/log.py Immersion 25 --md "Solo Leveling S1E03"</code>
+        <code class="code-block">python tools/log.py Immersion 25 --md "Frieren S1E03"</code>
         <p class="muted small" style="margin:0">Legt die Datei im Daten-Klon an und pusht sie mit deinem normalen Git-Login. Aus Python: <code>from log import log</code>.</p></details>
     </div>
 
@@ -765,43 +658,39 @@ function viewSettings() {
           <button class="link" data-action="sc-del" data-id="${esc(sc.id)}" aria-label="Löschen">✕</button></div></div>`).join('')}</div>
       <button class="btn btn-sm" data-action="sc-add" style="margin-top:10px">+ Shortcut</button></div>
 
-    <div class="card" id="sec-quests"><div class="card-head"><h2>Quests (Ziele)</h2>
-      <button class="btn btn-sm btn-system" data-action="quest-new">${icon('plus', 14)} Neue Quest</button></div>
-      <div class="list">${quests().map((q) => `<div class="item" style="grid-template-columns:minmax(0,1fr) auto"><div class="what"><b>${questLabel(q)}</b>
+    <div class="card" id="sec-quests"><div class="card-head"><h2>Ziele</h2>
+      <button class="btn btn-sm btn-primary" data-action="quest-new">${icon('plus', 14)} Neues Ziel</button></div>
+      <div class="list">${quests().map((q) => `<div class="item" style="grid-template-columns:minmax(0,1fr) auto"><div class="what"><b>${esc(goalName(q))}</b>
         <div class="note">${scopeOf(q).label} · ${esc(q.a || 'Gesamt')} · ${fmtMin(q.m)} · seit ${fmtDate(q.since || d.today)}</div></div>
         <div class="right"><button class="link" data-action="quest-edit" data-id="${esc(q.id)}" aria-label="Bearbeiten">${icon('edit', 16)}</button></div></div>`).join('')
-        || '<p class="muted">Noch keine Quests. Lege mit „Neue Quest“ dein erstes Ziel an.</p>'}</div></div>
+        || '<p class="muted">Noch keine Ziele. Lege mit „Neues Ziel“ dein erstes an.</p>'}</div></div>
 
-    <div class="card" id="sec-acts"><div class="card-head"><h2>Aktivitäten</h2><span class="sub">Farbe und Attribut fürs Status-Fenster</span></div>
-      <div class="list">${acts().map((a) => `<div class="item" style="grid-template-columns:auto minmax(0,1fr) minmax(0,140px) auto">
+    <div class="card" id="sec-acts"><div class="card-head"><h2>Aktivitäten</h2><span class="sub">Farbe pro Aktivität</span></div>
+      <div class="list">${acts().map((a) => `<div class="item" style="grid-template-columns:auto minmax(0,1fr) auto">
         <input type="color" value="${esc(a.color)}" data-change="act-color" data-id="${esc(a.id)}" aria-label="Farbe">
-        <b>${esc(a.name)}</b><select data-change="act-attr" data-id="${esc(a.id)}">${ATTR_OPTS(a.attr)}</select>
+        <b>${esc(a.name)}</b>
         <div class="right"><button class="link" data-action="act-rename" data-id="${esc(a.id)}" title="Umbenennen oder zusammenführen" aria-label="Umbenennen">${icon('edit', 16)}</button>
           <button class="link" data-action="act-hide" data-id="${esc(a.id)}" title="Aus Auswahllisten entfernen (Logs bleiben)">✕</button></div></div>`).join('')}</div>
       <div class="form-grid form-inline act-form">
         <label class="field"><span>Neue Aktivität</span><input type="text" id="newActName" placeholder="z. B. Lesen"></label>
-        <label class="field"><span>Farbe</span><input type="color" id="newActColor" value="#38bdf8"></label>
-        <label class="field"><span>Attribut</span><select id="newActAttr">${ATTR_OPTS('read')}</select></label>
+        <label class="field"><span>Farbe</span><input type="color" id="newActColor" value="#5b7e91"></label>
         <button class="btn" data-action="act-add">Hinzufügen</button></div></div>
 
-    <div class="card" id="sec-chorus"><div class="card-head"><h2>${icon('flame')} Chorus-Quest</h2><span class="sub">Daily Quest + Strafquest (doppelte Zeit)</span></div>
+    <div class="card" id="sec-chorus"><div class="card-head"><h2>${icon('wave')} Chorus-Pflicht</h2><span class="sub">täglich, verpasst = Nachholtag mit doppelter Zeit</span></div>
       <label class="toggle"><input type="checkbox" data-change="ch-on" ${chorusCfg().on ? 'checked' : ''}>
-        <span><b>Chorus-Quest aktiv</b><br><span class="muted small">Jeden Tag eine kleine Pflicht. Verpasst du sie, kommt am nächsten Tag eine Strafquest mit doppelter Zeit.
-          Schaffst du die, ist dein Chorus-Streak gerettet.</span></span></label>
+        <span><b>Chorus-Pflicht aktiv</b><br><span class="muted small">Jeden Tag ein paar Minuten. Verpasst du sie, kannst du sie am nächsten Tag mit doppelter Zeit
+          nachholen, dann läuft deine Chorus-Serie weiter.</span></span></label>
       <div class="form-grid">
         <label class="field"><span>Zählt als Chorusing</span><select data-change="ch-a">${ACT_OPTS(chorusCfg().a)}</select></label>
-        <label class="field"><span>Daily Quest (Minuten)</span><input type="number" min="1" max="120" data-change="ch-m" value="${chorusCfg().m}"></label>
+        <label class="field"><span>Minuten pro Tag</span><input type="number" min="1" max="120" data-change="ch-m" value="${chorusCfg().m}"></label>
         <label class="field"><span>Chorus-Zeit ab</span><select data-change="ch-from">${HOURS(chorusCfg().from)}</select></label>
         <label class="field"><span>bis</span><select data-change="ch-until">${HOURS(chorusCfg().until)}</select></label>
       </div></div>
 
     <div class="card"><div class="card-head"><h2>Allgemein</h2></div><div class="form-grid">
-      <label class="field"><span>Hunter-Name</span><input type="text" data-change="set-name" value="${esc(set.name || '')}" placeholder="Hunter"></label>
       <label class="field"><span>Tagesende (Custom day end)</span><select data-change="set-dayend">${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${(set.dayEnd || 0) === h ? 'selected' : ''}>${h === 0 ? 'Mitternacht (Standard)' : `${h}:00 Uhr nachts`}</option>`).join('')}</select></label>
-      <div class="field full"><span>Design</span><div class="seg">${[['auto', 'Automatisch'], ['dark', 'Dunkel'], ['light', 'Hell']].map(([k, l]) => `<button class="${S.ui.theme === k ? 'active' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`).join('')}</div></div>
-    </div>
-      <p class="muted small">❄ Streak-Freeze aktiv seit ${fmtDate(set.freezeStart || d.today)}: alle 7 Streak-Tage gibt es einen Freeze (max. 2). Verpasst du einen Tag, wird automatisch einer verbraucht.
-        Verfügbar: <b>${d.streak.freezes}</b> · nächster in ${d.streak.nextFreezeIn} Streak-Tag${d.streak.nextFreezeIn === 1 ? '' : 'en'}.</p></div>
+      <div class="field"><span>Design</span><div class="seg">${[['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([k, l]) => `<button class="${S.ui.theme === k ? 'active' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`).join('')}</div></div>
+    </div></div>
 
     <div class="card" id="sec-export"><div class="card-head"><h2>${icon('history')} Export &amp; Backup</h2><span class="sub">${fmtNum(d.live.length)} Logs · ${fmtH(d.tot.total)}${persistent() ? '' : ' · ⚠ Browser-Speicher nicht verfügbar'}</span></div>
       <div class="export-main">
@@ -812,7 +701,7 @@ function viewSettings() {
             <li><code>logs_excel.csv</code> öffnet direkt in deutschem Excel</li>
             <li><code>lingotrack_activity_logs.csv</code> im LingoTrack-Format</li>
             <li><code>tage.csv</code> Minuten pro Tag und Aktivität</li>
-            <li><code>nihongo-hunter-backup.json</code> komplettes Backup inkl. Shortcuts und Quests</li>
+            <li><code>tsuzuku-backup.json</code> komplettes Backup inkl. Shortcuts und Zielen</li>
           </ul></div>
         <button class="btn btn-primary btn-wide" data-action="export-all">ZIP exportieren</button>
       </div>
@@ -820,12 +709,12 @@ function viewSettings() {
         <span class="muted small">Einzeln:</span>
         <button class="btn btn-sm" data-action="export-one" data-file="logs.csv" data-type="text/csv">Logs (CSV)</button>
         <button class="btn btn-sm" data-action="export-one" data-file="logs_excel.csv" data-type="text/csv">Excel (CSV)</button>
-        <button class="btn btn-sm" data-action="export-one" data-file="nihongo-hunter-backup.json" data-type="application/json">Backup (JSON)</button>
+        <button class="btn btn-sm" data-action="export-one" data-file="tsuzuku-backup.json" data-type="application/json">Backup (JSON)</button>
         <span class="spacer"></span>
         <label class="btn btn-sm">Backup einspielen<input type="file" id="importFile" accept=".json,application/json" hidden></label></div>
       <p class="muted small">Unabhängig von dieser App liegen deine Daten als lesbare Dateien im privaten Repo <code>${esc(S.device.owner)}/${esc(S.device.repo)}</code> (mit kompletter Versionshistorie) und als Kopie in OneDrive. Einspielen führt zusammen und überschreibt nichts Neueres.</p></div>
 
-    <p class="muted small" style="text-align:center">Nihongo Hunter ${VERSION} · ${esc(S.device.name)}</p>
+    <p class="muted small" style="text-align:center">Tsuzuku 続く ${VERSION} · ${esc(S.device.name)}</p>
   </div>`;
 }
 
@@ -859,7 +748,7 @@ function openLogModal(id = null, preset = {}) {
         <label class="field"><span>Tag</span><input type="date" name="d" value="${dflt.d}" max="${today()}" required></label>
         <label class="field"><span>Uhrzeit</span><input type="time" name="time" value="${clock(dflt.t)}"></label>
         <label class="field full"><span>Notiz</span><input type="text" name="n" value="${esc(l?.n || '')}" placeholder="optional"></label>
-        <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(l?.md || '')}" placeholder="optional, z. B. Solo Leveling S2"></label>
+        <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(l?.md || '')}" placeholder="optional, z. B. Frieren S1"></label>
         <datalist id="mediaList">${media.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       </div></details>
     <div class="modal-foot">${l ? '<button type="button" class="btn btn-danger" data-del>Löschen</button>' : ''}<span class="spacer"></span>
@@ -914,8 +803,8 @@ function openQuestModal(id = null) {
   const dlg = $('#modal');
   dlg.className = 'sheet';
   dlg.innerHTML = `<form class="modal-body" id="questForm">
-    <div class="modal-head"><div><div class="sys-title" style="margin:0 0 4px">${q ? 'Quest bearbeiten' : 'Neue Quest'}</div>
-      <div class="muted small">Ein eigenes Ziel für Tag, Woche oder Monat</div></div>
+    <div class="modal-head"><div><h2>${q ? 'Ziel bearbeiten' : 'Neues Ziel'}</h2>
+      <div class="muted small">Für den Tag, die Woche oder den Monat</div></div>
       <button type="button" class="icon-btn" data-close aria-label="Schließen">✕</button></div>
     <div class="field"><span>Zeitraum</span><div class="seg seg-full">${St.QUEST_SCOPES.map((s) => `<button type="button" data-scope="${s.id}" class="${s.id === cur.scope ? 'active' : ''}">${s.label}</button>`).join('')}</div></div>
     <label class="field"><span>Aktivität</span><select name="a">${ACT_OPTS(cur.a, true)}</select></label>
@@ -923,7 +812,7 @@ function openQuestModal(id = null) {
       <div class="quick-min" id="qChips"></div><span class="muted small" id="qHint"></span></div>
     <label class="field"><span>Name (optional)</span><input type="text" name="qname" maxlength="60" value="${esc(cur.name || '')}" placeholder="z. B. Morgen-Anki oder Podcast-Woche"></label>
     <div class="modal-foot">${q ? '<button type="button" class="btn btn-danger" data-del>Löschen</button>' : ''}<span class="spacer"></span>
-      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-system btn-wide">${q ? 'Speichern' : 'Quest annehmen'}</button></div>
+      <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn btn-primary btn-wide">Ziel speichern</button></div>
   </form>`;
   const form = $('#questForm');
   let scope = cur.scope;
@@ -944,7 +833,7 @@ function openQuestModal(id = null) {
     };
   });
   form.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dlg.close(); });
-  if (q) form.querySelector('[data-del]').onclick = () => { dlg.close(); setMeta(upsertItem('quests', { id: q.id, x: 1 }), 'Quest entfernt'); toast('Quest gelöscht'); };
+  if (q) form.querySelector('[data-del]').onclick = () => { dlg.close(); setMeta(upsertItem('quests', { id: q.id, x: 1 }), 'Ziel entfernt'); toast('Ziel gelöscht'); };
   form.m.oninput = () => { form.m.setCustomValidity(''); hint(); };
   form.onsubmit = (e) => {
     e.preventDefault();
@@ -953,8 +842,8 @@ function openQuestModal(id = null) {
     dlg.close();
     setMeta(upsertItem('quests', {
       id: q?.id || uid(), scope, a: form.a.value, m: Math.round(m), name: form.elements.qname.value.trim(), since: q?.since || today(),
-    }), q ? 'Quest geändert' : 'Neue Quest');
-    toast(q ? 'Quest gespeichert' : 'Quest angenommen');
+    }), q ? 'Ziel geändert' : 'Neues Ziel');
+    toast(q ? 'Ziel gespeichert' : 'Ziel angelegt');
   };
   drawChips();
   hint();
@@ -1040,14 +929,15 @@ function exportFiles() {
 }
 
 async function exportAll() {
-  await saveFile(`nihongo-hunter-export-${today()}.zip`, zip(exportFiles()));
+  await saveFile(`tsuzuku-export-${today()}.zip`, zip(exportFiles()));
   toast('Export erstellt');
 }
 
 async function exportOne(name, type) {
   const f = exportFiles().find((x) => x.name === name);
   const [base, ext] = name.split(/\.(?=[^.]+$)/);
-  await saveFile(`nihongo-hunter-${base.replace(/_/g, '-')}-${today()}.${ext}`, new Blob([f.data], { type }));
+  const stem = base.startsWith('tsuzuku') ? base : `tsuzuku-${base.replace(/_/g, '-')}`;
+  await saveFile(`${stem}-${today()}.${ext}`, new Blob([f.data], { type }));
 }
 
 async function importBackup(file) {
@@ -1076,7 +966,7 @@ async function importBackup(file) {
 
 // ---- Rendering + navigation --------------------------------------------------------------
 
-const VIEWS = { home: viewHome, stats: viewStats, hunter: viewHunter, logs: viewLogs, settings: viewSettings };
+const VIEWS = { home: viewHome, stats: viewStats, logs: viewLogs, settings: viewSettings };
 
 function render() {
   const active = document.activeElement;
@@ -1088,6 +978,7 @@ function render() {
   const v = VIEWS[S.ui.view] ? S.ui.view : 'home';
   document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   $('#main').innerHTML = VIEWS[v]();
+  justSealed = false; // the stamp animation plays once
   if (v === 'stats') drawBars();
   if (v === 'logs') renderLogList();
   const hs = $('#heatScroll');
@@ -1102,8 +993,8 @@ function render() {
 }
 
 function go(view, anchor) {
-  S.ui.view = view;
-  if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
+  S.ui.view = VIEWS[view] ? view : 'home';
+  if (location.hash !== `#${S.ui.view}`) history.replaceState(null, '', `#${S.ui.view}`);
   saveUI();
   render();
   if (anchor) $(`#sec-${anchor}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1124,9 +1015,9 @@ function renderSyncPill() {
 }
 
 function applyTheme() {
-  const t = S.ui.theme === 'auto' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : S.ui.theme;
+  const t = S.ui.theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : S.ui.theme;
   document.documentElement.dataset.theme = t;
-  document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f5f6fa' : '#0a0b10';
+  document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#1a1917' : '#f7f3ea';
 }
 
 function saveUI() {
@@ -1157,11 +1048,10 @@ async function onAction(el) {
     case 'goto-settings': return go('settings', el.dataset.anchor);
     case 'clear-day': S.ui.logDay = ''; return render();
     case 'more-logs': S.ui.logLimit += 300; return renderLogList();
-    case 'equip': return setSettings({ title: id }, 'Titel gewählt');
     case 'theme': S.ui.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; applyTheme(); saveUI(); return render();
     case 'set-theme': S.ui.theme = el.dataset.theme; applyTheme(); saveUI(); return render();
     case 'quest-suggest':
-      return setMeta(upsertItem('quests', { id: uid(), scope: el.dataset.scope, a: el.dataset.a, m: +el.dataset.m, since: today() }), 'Quest');
+      return setMeta(upsertItem('quests', { id: uid(), scope: el.dataset.scope, a: el.dataset.a, m: +el.dataset.m, since: today() }), 'Ziel');
     case 'sc-add': {
       const o = Math.max(-1, ...shortcuts().map((s) => s.o ?? 0)) + 1;
       return setMeta(upsertItem('shortcuts', { id: uid(), a: acts()[0]?.name || 'Immersion', m: 15, o }), 'Shortcut');
@@ -1181,7 +1071,7 @@ async function onAction(el) {
       // ids are the original names: a renamed activity may still own this one, a hidden one comes back
       const same = (S.meta.activities || []).find((a) => a.id === name);
       const aid = same && same.name !== name ? uid() : name;
-      return setMeta(upsertItem('activities', { id: aid, name, color: $('#newActColor').value, attr: $('#newActAttr').value, o, x: 0 }), `Aktivität ${name}`);
+      return setMeta(upsertItem('activities', { id: aid, name, color: $('#newActColor').value, o, x: 0 }), `Aktivität ${name}`);
     }
     case 'act-hide': return setMeta(upsertItem('activities', { id, x: 1 }), 'Aktivität ausgeblendet');
     case 'act-rename': return openActModal(id);
@@ -1249,15 +1139,13 @@ function bindEvents() {
     if (key === 'sc-a') setMeta(upsertItem('shortcuts', { id, a: el.value }), 'Shortcut');
     if (key === 'sc-m') { const m = parseDuration(el.value); if (m > 0) setMeta(upsertItem('shortcuts', { id, m }), 'Shortcut'); }
     if (key === 'act-color') setMeta(upsertItem('activities', { id, color: el.value }), 'Farbe');
-    if (key === 'act-attr') setMeta(upsertItem('activities', { id, attr: el.value }), 'Attribut');
-    if (key === 'set-name') setSettings({ name: el.value.trim() }, 'Name');
     if (key === 'set-dayend') setSettings({ dayEnd: +el.value }, 'Tagesende');
     if (key === 'set-instant') setSettings({ instantShortcuts: el.checked }, 'Shortcut-Modus');
     if (key.startsWith('ch-')) {
       const field = key.slice(3);
       const value = field === 'on' ? el.checked : field === 'a' ? el.value : +el.value;
       if (field === 'm' && !(value > 0)) return;
-      setSettings({ chorus: { ...chorusCfg(), [field]: value } }, 'Chorus-Quest');
+      setSettings({ chorus: { ...chorusCfg(), [field]: value } }, 'Chorus-Pflicht');
     }
   });
 
@@ -1283,12 +1171,13 @@ function bindEvents() {
 
   addEventListener('hashchange', () => {
     const v = location.hash.slice(1);
+    if (v && !VIEWS[v]) { go('home'); return; } // e.g. a link to the old hunter page
     if (VIEWS[v] && v !== S.ui.view) { S.ui.view = v; render(); window.scrollTo({ top: 0 }); }
   });
   addEventListener('online', () => sync.run());
   addEventListener('offline', () => sync.setStatus('offline'));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run().then(penaltyNotice); render(); } });
-  matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); } });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   let rt;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawBars(); }, 150); });
 
@@ -1317,6 +1206,10 @@ async function boot() {
   if (ui) Object.assign(S.ui, ui);
   const hv = location.hash.slice(1);
   if (VIEWS[hv]) S.ui.view = hv;
+  if (!VIEWS[S.ui.view] || (hv && !VIEWS[hv])) { // e.g. the old hunter page
+    S.ui.view = 'home';
+    history.replaceState(null, '', '#home');
+  }
   applyTheme();
 
   sync = new Sync({
@@ -1351,7 +1244,8 @@ async function boot() {
   render();
   window.__booted = true;
   try { sessionStorage.removeItem('nh-heal'); } catch { /* storage blocked */ }
-  sync.run().then(penaltyNotice);
+  // colours only after the first sync, so a newer remote meta is merged before anything is rewritten
+  sync.run().then(migrateColors);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

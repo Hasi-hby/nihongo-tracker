@@ -1,11 +1,11 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek } from './util.js?v=1.6.0';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek } from './util.js?v=2.0.0';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
 /** Year heatmap, Monday-first rows, one column per week. */
-export function heatmap(dm, year, { today, frozen = new Set(), max = 480 } = {}) {
+export function heatmap(dm, year, { today, max = 480 } = {}) {
   const step = 15, cell = 12, left = 26, top = 4;
   const first = `${year}-01-01`, last = `${year}-12-31`;
   const start = startOfWeek(first, 1);
@@ -23,7 +23,6 @@ export function heatmap(dm, year, { today, frozen = new Set(), max = 480 } = {})
       let cls = 'hm', style = '', label = mins ? fmtMin(mins) : 'nichts geloggt';
       if (mins > 0) style = ` style="fill-opacity:${(0.22 + 0.78 * Math.min(1, mins / max)).toFixed(2)}"`;
       else cls += ' hm-empty';
-      if (frozen.has(d)) { cls = 'hm hm-frozen'; style = ''; label = 'Streak-Freeze ❄'; }
       if (d > today) cls += ' hm-future';
       if (d === today) cls += ' hm-today';
       parts.push(`<rect class="${cls}" data-day="${d}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5"${style}><title>${fmtDate(d, { weekday: true })} · ${label}</title></rect>`);
@@ -96,27 +95,4 @@ export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
   out.push(`<polyline class="cum" points="${pts.join(' ')}"/>`);
   out.push(`<text class="ax" x="4" y="${T + 2}" transform="rotate(-90 4 ${T + 2})" text-anchor="end">Stunden</text>`);
   return `<svg class="bars" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">${out.join('')}</svg>`;
-}
-
-/** Radar for the hunter status window. attrs: [{short, stat}] */
-export function radar(attrs, { size = 260 } = {}) {
-  const cx = size / 2, cy = size / 2 + 6, r = size / 2 - 38, n = attrs.length;
-  const max = niceMax(Math.max(100, ...attrs.map((a) => a.stat)));
-  const pt = (i, v) => {
-    const ang = -Math.PI / 2 + (i / n) * 2 * Math.PI;
-    return [cx + Math.cos(ang) * r * v, cy + Math.sin(ang) * r * v];
-  };
-  const out = [];
-  for (let k = 1; k <= 4; k++) {
-    out.push(`<polygon class="radar-grid" points="${attrs.map((_, i) => pt(i, k / 4).map((v) => v.toFixed(1)).join(',')).join(' ')}"/>`);
-  }
-  attrs.forEach((a, i) => {
-    const [x, y] = pt(i, 1);
-    out.push(`<line class="radar-grid" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`);
-    const [lx, ly] = pt(i, 1.2);
-    out.push(`<text class="radar-label" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${esc(a.short)}</text>`);
-    out.push(`<text class="radar-val" x="${lx.toFixed(1)}" y="${(ly + 13).toFixed(1)}" text-anchor="middle">${a.stat}</text>`);
-  });
-  out.push(`<polygon class="radar-shape" points="${attrs.map((a, i) => pt(i, Math.max(0.02, a.stat / max)).map((v) => v.toFixed(1)).join(',')).join(' ')}"/>`);
-  return `<svg class="radar" viewBox="0 0 ${size} ${size + 12}" width="${size}" height="${size + 12}" role="img">${out.join('')}</svg>`;
 }

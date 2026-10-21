@@ -1,6 +1,6 @@
-# Nihongo Hunter
+# Tsuzuku 続く
 
-Eigener Japanisch-Time-Tracker als Ersatz für LingoTrack: Activities, Shortcuts, Timer, Heatmap, Graphen, Tages-Streak mit Streak-Freeze, Daily/Weekly Quests und ein Hunter-Rang-System im Solo-Leveling-Stil.
+Eigener Japanisch-Time-Tracker als Ersatz für LingoTrack: Aktivitäten, Shortcuts, Timer, Heatmap, Graphen, Tages-Streak, eigene Tages-/Wochen-/Monatsziele und eine tägliche Chorus-Pflicht mit Nachholtag. Ruhiges Design in traditionellen japanischen Farben (藍 Indigo, 朱 Zinnober, Papierweiß); ein erfüllter Tag bekommt den 済-Stempel.
 
 **App:** https://hasi-hby.github.io/nihongo-tracker/
 Am iPhone/iPad in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Danach läuft die App wie eine normale App, auch offline.
@@ -16,6 +16,14 @@ Am iPhone/iPad in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Danac
 
 Dieses Repo enthält nur Code, keine Daten.
 
+## Neuer Name und neues Icon auf dem iPhone/iPad
+
+iOS übernimmt Name und Icon nur beim „Zum Home-Bildschirm“ und aktualisiert sie danach nicht. Die neue Optik kommt mit jedem Update von selbst, nur Icon und Beschriftung bleiben beim alten Stand, bis die App neu hinzugefügt wird. Beim Entfernen löscht iOS den Speicher der Web-App, also auch den Token:
+
+1. In der alten App prüfen, dass die Sync-Pill „synchron“ zeigt.
+2. Einen neuen Fine-grained Token erstellen (siehe unten).
+3. Alte App vom Home-Bildschirm löschen, die Seite in Safari öffnen, Teilen → „Zum Home-Bildschirm“, Token einfügen.
+
 ## Gerät verbinden (einmal pro Gerät)
 
 1. [Fine-grained Token erstellen](https://github.com/settings/personal-access-tokens/new):
@@ -26,7 +34,7 @@ Der Token bleibt nur auf dem Gerät. Ein Token pro Gerät, damit man ein verlore
 
 ## Sync
 
-- `meta.json`: Aktivitäten, Shortcuts, Quests, Einstellungen, Timer
+- `meta.json`: Aktivitäten, Shortcuts, Ziele (`quests`), Einstellungen, Timer
 - `logs/<jahr>.json`: Logs, ein Eintrag pro Zeile
 
 - `inbox/<name>.json`: Logs von außerhalb der App (siehe unten), werden beim Sync übernommen und gelöscht
@@ -38,7 +46,7 @@ Jeder Eintrag hat `u` (letzte Änderung). Beim Zusammenführen gewinnt der neuer
 Alles, was eine neue Datei in `inbox/` im Daten-Repo anlegt, wird beim nächsten Sync eines Geräts ein normaler Log. Eine neue Datei braucht keinen `sha`, kann also nie mit etwas kollidieren.
 
 ```json
-{"a":"Immersion","m":20,"md":"Solo Leveling S1E03","t":"2026-10-19T20:15:00+02:00","src":"siri"}
+{"a":"Immersion","m":20,"md":"Frieren S1E03","t":"2026-10-19T20:15:00+02:00","src":"siri"}
 ```
 
 Pflicht sind nur `a` (Aktivität, Groß-/Kleinschreibung egal) und `m` (Minuten, auch `"1:30"`). `t` ist ein ISO-Datum oder ein Unix-Zeitstempel; fehlt er, gilt ein Zeitstempel am Anfang des Dateinamens, sonst der Zeitpunkt des Syncs. `d` (Tag), `n` (Notiz), `md` (Medium) und `src` (Quelle) sind optional. Mehrere Einträge in einer Datei: `{"logs":[…]}`.
@@ -48,14 +56,14 @@ Die App übernimmt die Einträge mit fester ID `ib-<dateiname>` (zwei Geräte er
 ### Vom PC
 
 ```bash
-python tools/log.py Immersion 25 --md "Solo Leveling S1E03"
+python tools/log.py Immersion 25 --md "Frieren S1E03"
 ```
 
 Schreibt die Datei in den Daten-Klon und pusht sie mit dem normalen Git-Login. Aus anderen Python-Skripten: `from log import log`, dann `log("Immersion", 24, md="…", src="watch")`.
 
 ### iOS-Kurzbefehl (Siri, Widget, Apple Watch, NFC)
 
-1. [Fine-grained Token](https://github.com/settings/personal-access-tokens/new) „Hunter Kurzbefehl“: nur `nihongo-tracker-data`, *Contents: Read and write*.
+1. [Fine-grained Token](https://github.com/settings/personal-access-tokens/new) „Tsuzuku Kurzbefehl“: nur `nihongo-tracker-data`, *Contents: Read and write*.
 2. Kurzbefehle-App → neuer Kurzbefehl, z. B. „Japanisch loggen“:
    1. **Nach Eingabe fragen** (Zahl, „Wie viele Minuten?“). Für einen 1-Tipp-Log stattdessen eine feste Zahl.
    2. **Wörterbuch**: `a` = Immersion (Text), `m` = Eingabe (Zahl), `t` = Aktuelles Datum im Format ISO 8601 (Text), `src` = siri, optional `md`.

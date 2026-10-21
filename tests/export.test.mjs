@@ -13,7 +13,7 @@ const logs = [
 ];
 
 test('crc32 matches zlib', () => {
-  const data = new TextEncoder().encode('日本語 Hunter ✓ '.repeat(50));
+  const data = new TextEncoder().encode('日本語 Tsuzuku ✓ '.repeat(50));
   assert.equal(crc32(data), nodeCrc(data));
 });
 
@@ -59,6 +59,6 @@ test('export contains all files, skips deleted logs, escapes CSV', () => {
   assert.equal(days[1], '2026-10-17,42.5,30,12.5');
   assert.equal(days[2], '2026-10-18,15,0,15');
 
-  const backup = JSON.parse(files.find((f) => f.name === 'nihongo-hunter-backup.json').data);
+  const backup = JSON.parse(files.find((f) => f.name === 'tsuzuku-backup.json').data);
   assert.equal(backup.logs.length, 4); // tombstones stay in the backup so deletions survive a restore
 });

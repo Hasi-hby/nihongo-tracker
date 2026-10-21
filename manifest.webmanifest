@@ -1,12 +1,12 @@
 {
-  "name": "Nihongo Hunter",
-  "short_name": "Hunter",
-  "description": "Japanisch-Time-Tracker mit Streak, Statistiken und Hunter-Rängen.",
+  "name": "Tsuzuku – 日本語の記録",
+  "short_name": "Tsuzuku",
+  "description": "Japanisch-Time-Tracker: Streak, Ziele, Chorus-Pflicht und Statistiken.",
   "start_url": "./#home",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0a0b10",
-  "theme_color": "#0a0b10",
+  "background_color": "#f7f3ea",
+  "theme_color": "#f7f3ea",
   "lang": "de",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
