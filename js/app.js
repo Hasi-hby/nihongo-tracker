@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.0';
-import { Sync } from './sync.js?v=2.2.0';
-import { parseInbox } from './inbox.js?v=2.2.0';
-import * as St from './stats.js?v=2.2.0';
-import * as Ch from './charts.js?v=2.2.0';
-import { buildExport } from './export.js?v=2.2.0';
-import { zip } from './zip.js?v=2.2.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.1';
+import { Sync } from './sync.js?v=2.2.1';
+import { parseInbox } from './inbox.js?v=2.2.1';
+import * as St from './stats.js?v=2.2.1';
+import * as Ch from './charts.js?v=2.2.1';
+import { buildExport } from './export.js?v=2.2.1';
+import { zip } from './zip.js?v=2.2.1';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.2.0';
+} from './util.js?v=2.2.1';
 
-const VERSION = '2.2.0';
+const VERSION = '2.2.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -38,6 +38,7 @@ let justSealed = false;
 let justLogged = false; // today's minutes light up after a new log
 let animateView = true; // the first render and every page change slide in
 let countUp = true; // the streak counts up once per app start
+let animateCard = ''; // cards whose content was just switched (Heute/Woche, statistics period) build up anew
 const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function guessDevice() {
@@ -475,7 +476,7 @@ function todayCard(d) {
   // a running day/week is shown as "share of your average", not as a (mostly negative) difference
   const share = refTotal > 0 ? Math.round((total / refTotal) * 100) : null;
   const unit = week ? 'Woche' : 'Tag';
-  return `<div class="card today-card"><div class="card-head"><h2>${icon(week ? 'calendar' : 'sun')} ${week ? 'Diese Woche' : 'Heute'} nach Aktivität</h2>
+  return `<div class="card today-card" data-swap="today"><div class="card-head"><h2>${icon(week ? 'calendar' : 'sun')} ${week ? 'Diese Woche' : 'Heute'} nach Aktivität</h2>
       <div class="seg"><button class="${week ? '' : 'active'}" data-action="home-range" data-r="day">Heute</button>
         <button class="${week ? 'active' : ''}" data-action="home-range" data-r="week">Woche</button></div></div>
     <div class="today-body">
@@ -527,7 +528,7 @@ function viewStats() {
   for (const l of d.live) if (l.d >= range.start && l.d <= range.end) counts[l.a] = (counts[l.a] || 0) + 1;
   const isNow = range.start <= d.today && d.today <= range.end;
   return `<div class="grid">
-    <div class="card"><div class="card-head">
+    <div class="card" data-swap="stats"><div class="card-head">
       <div class="seg">${St.PERIODS.map((x) => `<button class="${x.id === p ? 'active' : ''}" data-action="period" data-p="${x.id}">${x.label}</button>`).join('')}</div>
       ${p !== 'all' ? `<div class="row"><button class="btn btn-sm" data-action="shift" data-dir="-1">←</button><b class="num">${esc(range.label)}</b>
         <button class="btn btn-sm" data-action="shift" data-dir="1" ${range.end >= d.today ? 'disabled' : ''}>→</button>
@@ -547,10 +548,10 @@ function viewStats() {
           ${rc.top ? `<div class="stat-row"><span>Top-Aktivität: ${esc(rc.top[0])}</span><b>${fmtH(rc.top[1])}</b></div>` : ''}
         </div></div>
       </div></div>
-    <div class="card"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · gestrichelt: kumuliert (rechte Achse)</span></div>
+    <div class="card" data-swap="stats"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · gestrichelt: kumuliert (rechte Achse)</span></div>
       <div class="scroll-x" id="barsBox" data-range="1"></div></div>
     ${chorusCard(d)}
-    <div class="card"><div class="card-head"><h2>Aktivitäten</h2></div><div class="list">
+    <div class="card" data-swap="stats"><div class="card-head"><h2>Aktivitäten</h2></div><div class="list">
       ${list.map((a) => `<div class="item"><span class="dot" style="background:${a.color}"></span><div class="what"><b>${esc(a.name)}</b>
         <div class="note">${fmtNum(counts[a.name] || 0)} Logs · Ø ${fmtMin(agg.by[a.name] / (counts[a.name] || 1))} pro Log</div></div>
         <div class="right num">${fmtH(agg.by[a.name])}</div></div>`).join('') || '<p class="muted">Keine Logs.</p>'}</div></div>
@@ -1004,6 +1005,13 @@ function render() {
   main.innerHTML = VIEWS[v]();
   main.classList.toggle('view-enter', animateView && !calm());
   animateView = false;
+  if (animateCard && !calm()) {
+    const cards = main.querySelectorAll(`[data-swap="${animateCard}"]`);
+    cards.forEach((el) => el.classList.add('swap'));
+    // drop the class afterwards, so a later redraw (e.g. resizing the chart) does not replay it
+    setTimeout(() => cards.forEach((el) => el.classList.remove('swap')), 1200);
+  }
+  animateCard = '';
   if (countUp && v === 'home') { countUp = false; if (!calm()) countTo($('.hero-num')); }
   justSealed = false; // the glow animation plays once
   justLogged = false;
@@ -1074,9 +1082,12 @@ async function onAction(el) {
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
     case 'heat': S.ui.heatYear = (S.ui.heatYear || +today().slice(0, 4)) + +el.dataset.dir; return render();
-    case 'home-range': S.ui.homeRange = el.dataset.r; saveUI(); return render();
-    case 'period': S.ui.period = el.dataset.p; S.ui.anchor = null; saveUI(); return render();
-    case 'shift': S.ui.anchor = +el.dataset.dir === 0 ? null : St.shiftAnchor(S.ui.period, S.ui.anchor || today(), +el.dataset.dir); return render();
+    case 'home-range': S.ui.homeRange = el.dataset.r; animateCard = 'today'; saveUI(); return render();
+    case 'period': S.ui.period = el.dataset.p; S.ui.anchor = null; animateCard = 'stats'; saveUI(); return render();
+    case 'shift':
+      S.ui.anchor = +el.dataset.dir === 0 ? null : St.shiftAnchor(S.ui.period, S.ui.anchor || today(), +el.dataset.dir);
+      animateCard = 'stats';
+      return render();
     case 'goto-settings': return go('settings', el.dataset.anchor);
     case 'clear-day': S.ui.logDay = ''; return render();
     case 'more-logs': S.ui.logLimit += 300; return renderLogList();

@@ -3,7 +3,7 @@
 // All app files are requested with ?v=<version> (see tools/bump_version.py), so the
 // cache holds exactly one consistent set per version. GitHub API calls are never touched.
 
-const VERSION = '2.2.0';
+const VERSION = '2.2.1';
 const CACHE = `tsuzuku-${VERSION}`;
 const V = `?v=${VERSION}`;
 const SHELL = [

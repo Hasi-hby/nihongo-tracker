@@ -482,6 +482,21 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
 .toast.out { animation: toastOut 0.22s ease-in forwards; }
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
 .line.now .line-btn { animation: nudge 2.6s ease-in-out infinite; }
+/* switching Heute/Woche or the statistics period: the card builds up with the new numbers */
+.swap .donut { animation: donutIn 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+@keyframes donutIn { from { opacity: 0; transform: scale(0.82); } }
+.swap :is(.tl-row, .legend-row, .stat-row, .item) { animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(2) { animation-delay: 0.04s; }
+.swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(3) { animation-delay: 0.08s; }
+.swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(4) { animation-delay: 0.12s; }
+.swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(5) { animation-delay: 0.16s; }
+.swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(n+6) { animation-delay: 0.2s; }
+.swap :is(.tl-bar, .bar) > i { animation: fill 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s backwards; transform-origin: left; }
+.swap .bars .col { animation: grow 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(var(--i, 0) * 16ms); transform-box: fill-box; transform-origin: bottom; }
+.swap .bars .cum { animation: fadeIn 0.6s ease-out 0.35s backwards; }
+@keyframes fadeIn { from { opacity: 0; } }
+.swap .seg button.active { animation: segIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes segIn { from { transform: scale(0.9); opacity: 0.5; } }
 @keyframes nudge { 50% { box-shadow: 0 0 0 5px var(--mint-soft); } }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

@@ -1,6 +1,6 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.0';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.1';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
@@ -92,6 +92,8 @@ export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
   agg.buckets.forEach((b, i) => {
     const x = L + i * slot + (slot - bw) / 2;
     let y = T + h;
+    // one group per column, so a column can grow from the baseline as a whole (--i staggers it)
+    out.push(`<g class="col" style="--i:${i}">`);
     for (const a of acts) {
       const m = b.by[a.name];
       if (!m) continue;
@@ -99,6 +101,7 @@ export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
       y -= bh;
       out.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, bh).toFixed(1)}" fill="${a.color}" rx="${bw > 8 ? 2 : 0}"><title>${esc(b.title)} · ${esc(a.name)}: ${fmtMin(m)}</title></rect>`);
     }
+    out.push('</g>');
     if (b.total > 0) out.push(`<rect class="hit" x="${x}" y="${T}" width="${bw}" height="${h}"><title>${esc(b.title)} · ${fmtMin(b.total)}</title></rect>`);
     if (i % every === 0) out.push(`<text class="ax" x="${(x + bw / 2).toFixed(1)}" y="${height - 8}" text-anchor="middle">${esc(b.label)}</text>`);
     pts.push(`${(x + bw / 2).toFixed(1)},${(T + h - (b.cum / 60 / maxC) * h).toFixed(1)}`);
