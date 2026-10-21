@@ -1,6 +1,6 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.1';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.2';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
@@ -49,14 +49,24 @@ export function heatmap(dm, year, { today, max = 480 } = {}) {
   return `<svg class="heatmap" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Heatmap ${year}">${parts.join('')}</svg>`;
 }
 
-/** Donut with one ring segment per entry. segs: [{label, value, color}] */
+const DRAW_MS = 1000; // how long the ring takes to close when it animates (.donut .seg in styles.css)
+/** Time (0..1) at which a steady sweep (gentle start and end) around the ring has covered the share p. */
+const sweepAt = (p) => Math.acos(1 - 2 * Math.min(1, p)) / Math.PI;
+
+/**
+ * Donut with one ring segment per entry. segs: [{label, value, color}]
+ * Each segment carries the delay and duration of its part of one continuous sweep, so the
+ * ring closes clockwise from the top when the page animates it.
+ */
 export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } = {}) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r, total = segs.reduce((s, x) => s + x.value, 0);
   let off = 0;
   const arcs = total ? segs.filter((s) => s.value > 0).map((s) => {
     const len = (s.value / total) * c;
     const gap = segs.length > 1 ? Math.min(2, len / 3) : 0;
-    const el = `<circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" stroke="${s.color}" stroke-width="${stroke}"
+    const t0 = sweepAt(off / c), t1 = sweepAt((off + len) / c);
+    const timing = `animation-delay:${Math.round(t0 * DRAW_MS)}ms;animation-duration:${Math.max(1, Math.round((t1 - t0) * DRAW_MS))}ms`;
+    const el = `<circle class="seg" style="${timing}" r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" stroke="${s.color}" stroke-width="${stroke}"
       stroke-dasharray="${Math.max(0, len - gap)} ${c - Math.max(0, len - gap)}" stroke-dashoffset="${-off}"
       transform="rotate(-90 ${size / 2} ${size / 2})"><title>${esc(s.label)} · ${fmtMin(s.value)} (${Math.round((s.value / total) * 100)} %)</title></circle>`;
     off += len;

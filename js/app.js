@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.1';
-import { Sync } from './sync.js?v=2.2.1';
-import { parseInbox } from './inbox.js?v=2.2.1';
-import * as St from './stats.js?v=2.2.1';
-import * as Ch from './charts.js?v=2.2.1';
-import { buildExport } from './export.js?v=2.2.1';
-import { zip } from './zip.js?v=2.2.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.2';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.2';
+import { Sync } from './sync.js?v=2.2.2';
+import { parseInbox } from './inbox.js?v=2.2.2';
+import * as St from './stats.js?v=2.2.2';
+import * as Ch from './charts.js?v=2.2.2';
+import { buildExport } from './export.js?v=2.2.2';
+import { zip } from './zip.js?v=2.2.2';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.2.1';
+} from './util.js?v=2.2.2';
 
-const VERSION = '2.2.1';
+const VERSION = '2.2.2';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];

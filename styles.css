@@ -483,8 +483,10 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
 .line.now .line-btn { animation: nudge 2.6s ease-in-out infinite; }
 /* switching Heute/Woche or the statistics period: the card builds up with the new numbers */
-.swap .donut { animation: donutIn 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
-@keyframes donutIn { from { opacity: 0; transform: scale(0.82); } }
+/* the ring closes clockwise from the top; each segment's delay and duration come from charts.js */
+:is(.view-enter, .swap) .donut .seg { animation-name: drawSeg; animation-timing-function: linear; animation-fill-mode: backwards; }
+@keyframes drawSeg { from { stroke-dasharray: 0 1000; } }
+:is(.view-enter, .swap) .donut text { animation: fadeIn 0.5s ease-out 0.3s backwards; }
 .swap :is(.tl-row, .legend-row, .stat-row, .item) { animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(2) { animation-delay: 0.04s; }
 .swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(3) { animation-delay: 0.08s; }
