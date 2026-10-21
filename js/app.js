@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.1.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.1.0';
-import { Sync } from './sync.js?v=2.1.0';
-import { parseInbox } from './inbox.js?v=2.1.0';
-import * as St from './stats.js?v=2.1.0';
-import * as Ch from './charts.js?v=2.1.0';
-import { buildExport } from './export.js?v=2.1.0';
-import { zip } from './zip.js?v=2.1.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.1.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.1.1';
+import { Sync } from './sync.js?v=2.1.1';
+import { parseInbox } from './inbox.js?v=2.1.1';
+import * as St from './stats.js?v=2.1.1';
+import * as Ch from './charts.js?v=2.1.1';
+import { buildExport } from './export.js?v=2.1.1';
+import { zip } from './zip.js?v=2.1.1';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.1.0';
+} from './util.js?v=2.1.1';
 
-const VERSION = '2.1.0';
+const VERSION = '2.1.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -728,7 +728,7 @@ function openLogModal(id = null, preset = {}) {
     <label class="field"><span>Aktivität</span><select name="a" class="act-select">${names.map((n) => `<option ${n === dflt.a ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
     <div class="field"><span>Dauer</span>
       <div class="stepper"><button type="button" class="btn" data-step="-5" aria-label="5 Minuten weniger">−5</button>
-        <input type="text" name="m" inputmode="decimal" autocomplete="off" placeholder="45 oder 1:30" value="${dflt.m || ''}" required>
+        <input type="text" name="m" inputmode="decimal" autocomplete="off" placeholder="45 oder 1:30" value="${dflt.m || ''}" required title="Mausrad: hoch = 1 min mehr, runter = 1 min weniger">
         <button type="button" class="btn" data-step="5" aria-label="5 Minuten mehr">+5</button></div>
       <div class="quick-min">${[10, 15, 20, 30, 45, 60, 90, 120].map((m) => `<button type="button" class="btn btn-sm" data-min="${m}">${fmtMin(m)}</button>`).join('')}</div>
       <span class="muted small" id="durHint"></span></div>
@@ -750,13 +750,28 @@ function openLogModal(id = null, preset = {}) {
   };
   form.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => dlg.close(); });
   form.querySelectorAll('[data-min]').forEach((b) => { b.onclick = () => { form.m.value = b.dataset.min; hint(); }; });
-  form.querySelectorAll('[data-step]').forEach((b) => {
-    b.onclick = () => {
-      const cur = parseDuration(form.m.value) || 0;
-      form.m.value = Math.max(1, Math.round(cur + +b.dataset.step));
-      hint();
-    };
-  });
+  const stepBy = (n) => {
+    form.m.value = Math.max(1, Math.round((parseDuration(form.m.value) || 0) + n));
+    form.m.setCustomValidity('');
+    hint();
+  };
+  form.querySelectorAll('[data-step]').forEach((b) => { b.onclick = () => stepBy(+b.dataset.step); });
+  // mouse wheel over the duration, like LingoTrack: up = one minute more, down = one less.
+  // A mouse notch (about 100 px or 3 lines) is one minute, a fast spin bundles several notches
+  // into one event, and the small deltas of a trackpad add up.
+  let wheel = 0;
+  form.querySelector('.stepper').addEventListener('wheel', (e) => {
+    if (!e.deltaY) return;
+    e.preventDefault();
+    const px = e.deltaY * ([1, 33, 100][e.deltaMode] || 1);
+    if (Math.abs(px) >= 40) {
+      stepBy(-Math.sign(px) * Math.max(1, Math.round(Math.abs(px) / 100)));
+      wheel = 0;
+      return;
+    }
+    wheel += px;
+    if (Math.abs(wheel) >= 40) { stepBy(-Math.sign(wheel)); wheel = 0; }
+  }, { passive: false });
   form.a.onchange = () => form.style.setProperty('--c', colorOf(form.a.value));
   if (l) form.querySelector('[data-del]').onclick = () => { dlg.close(); deleteLog(l.id); };
   form.onsubmit = async (e) => {
