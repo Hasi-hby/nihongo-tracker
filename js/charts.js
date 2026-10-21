@@ -1,6 +1,6 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.2';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.3';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
@@ -49,14 +49,14 @@ export function heatmap(dm, year, { today, max = 480 } = {}) {
   return `<svg class="heatmap" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Heatmap ${year}">${parts.join('')}</svg>`;
 }
 
-const DRAW_MS = 1000; // how long the ring takes to close when it animates (.donut .seg in styles.css)
-/** Time (0..1) at which a steady sweep (gentle start and end) around the ring has covered the share p. */
-const sweepAt = (p) => Math.acos(1 - 2 * Math.min(1, p)) / Math.PI;
+const DRAW_MS = 800; // how long the ring takes to close when it animates; it pulses for exactly this long (.donut in styles.css)
+/** Time (0..1) at which an ease-out sweep (fast start, soft close) around the ring has covered the share p. */
+const sweepAt = (p) => 1 - Math.sqrt(1 - Math.min(1, p));
 
 /**
  * Donut with one ring segment per entry. segs: [{label, value, color}]
  * Each segment carries the delay and duration of its part of one continuous sweep, so the
- * ring closes clockwise from the top when the page animates it.
+ * ring closes clockwise from the top when the page animates it; the ring pulses while it closes.
  */
 export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } = {}) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r, total = segs.reduce((s, x) => s + x.value, 0);
@@ -72,9 +72,10 @@ export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } =
     off += len;
     return el;
   }) : [`<circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" class="grid-stroke" stroke-width="${stroke}"/>`];
-  return `<svg class="donut" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">${arcs.join('')}
-    <text class="donut-big" x="50%" y="48%" text-anchor="middle">${esc(center)}</text>
-    <text class="ax" x="50%" y="61%" text-anchor="middle">${esc(sub)}</text></svg>`;
+  return `<svg class="donut" style="--draw:${DRAW_MS}ms" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">
+    <g class="${total ? 'ring' : ''}">${arcs.join('')}</g>
+    <g class="mid"><text class="donut-big" x="50%" y="48%" text-anchor="middle">${esc(center)}</text>
+    <text class="ax" x="50%" y="61%" text-anchor="middle">${esc(sub)}</text></g></svg>`;
 }
 
 function niceMax(v) {

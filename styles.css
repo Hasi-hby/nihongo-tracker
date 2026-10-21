@@ -483,10 +483,16 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
 .line.now .line-btn { animation: nudge 2.6s ease-in-out infinite; }
 /* switching Heute/Woche or the statistics period: the card builds up with the new numbers */
-/* the ring closes clockwise from the top; each segment's delay and duration come from charts.js */
+/* the ring closes clockwise from the top (each segment's delay and duration come from charts.js)
+   and pulses while it closes: it starts a little small, swells past its size and settles exactly on closing */
+.donut { overflow: visible; }
 :is(.view-enter, .swap) .donut .seg { animation-name: drawSeg; animation-timing-function: linear; animation-fill-mode: backwards; }
 @keyframes drawSeg { from { stroke-dasharray: 0 1000; } }
-:is(.view-enter, .swap) .donut text { animation: fadeIn 0.5s ease-out 0.3s backwards; }
+:is(.view-enter, .swap) .donut :is(.ring, .mid) { transform-box: fill-box; transform-origin: center; }
+:is(.view-enter, .swap) .donut .ring { animation: ringPulse var(--draw, 0.8s) ease-out backwards; }
+:is(.view-enter, .swap) .donut .mid { animation: midPulse var(--draw, 0.8s) ease-out backwards; }
+@keyframes ringPulse { 0% { transform: scale(0.78); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+@keyframes midPulse { 0% { transform: scale(0.8); opacity: 0; } 30% { opacity: 1; } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
 .swap :is(.tl-row, .legend-row, .stat-row, .item) { animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(2) { animation-delay: 0.04s; }
 .swap :is(.tl-row, .legend-row, .stat-row, .item):nth-child(3) { animation-delay: 0.08s; }
