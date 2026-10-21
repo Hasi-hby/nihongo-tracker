@@ -1,8 +1,19 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek } from './util.js?v=2.0.0';
+import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.1.0';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
+
+/** The last seven days as small bars; today is still running, so it is drawn lighter. */
+export function weekBars(dm, today) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
+  const mins = days.map((d) => dm.get(d)?.total || 0);
+  const max = Math.max(1, ...mins);
+  const bars = days.map((d, i) => `<i class="${d === today ? 'today' : ''}${mins[i] ? '' : ' empty'}"
+    style="height:${Math.max(6, Math.round((mins[i] / max) * 100))}%" title="${fmtDate(d, { weekday: true })} · ${fmtMin(mins[i])}"></i>`);
+  return `<div class="wbars">${bars.join('')}</div>
+    <div class="wbars-days">${days.map((d) => `<span>${WD_SHORT[weekday(d)]}</span>`).join('')}</div>`;
+}
 
 /** Year heatmap, Monday-first rows, one column per week. */
 export function heatmap(dm, year, { today, max = 480 } = {}) {

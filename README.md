@@ -1,6 +1,6 @@
 # Tsuzuku 続く
 
-Eigener Japanisch-Time-Tracker als Ersatz für LingoTrack: Aktivitäten, Shortcuts, Timer, Heatmap, Graphen, Tages-Streak, eigene Tages-/Wochen-/Monatsziele und eine tägliche Chorus-Pflicht mit Nachholtag. Ruhiges Design in traditionellen japanischen Farben (藍 Indigo, 朱 Zinnober, Papierweiß); ein erfüllter Tag bekommt den 済-Stempel.
+Eigener Japanisch-Time-Tracker als Ersatz für LingoTrack: Aktivitäten, Shortcuts, Timer, Heatmap, Graphen, Tages-Streak, eigene Tages-/Wochen-/Monatsziele und eine tägliche Chorus-Pflicht mit Nachholtag. Dunkles, schlichtes Design: fast schwarz mit Mint-Schimmer hinter der Streak, Schrift Sora (liegt unter `fonts/`, SIL Open Font License). Ein erfüllter Tag (Chorus + alle Tagesziele) zeigt „Tag erfüllt ✓“, darunter steht der nächste Stunden-Meilenstein.
 
 **App:** https://hasi-hby.github.io/nihongo-tracker/
 Am iPhone/iPad in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Danach läuft die App wie eine normale App, auch offline.

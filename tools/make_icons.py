@@ -1,16 +1,15 @@
 """Render the app icons (PNG for iOS/Android, SVG favicon). Run once: python tools/make_icons.py
 
-The icon is a hanko (判子): a white 続 cut into a vermilion seal on paper.
+The icon matches the app: a thin mint 続 with a soft glow on near-black.
 """
 
-import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 OUT = Path(__file__).resolve().parent.parent / "icons"
-PAPER, SHU = (247, 243, 234), (200, 22, 29)
-FONTS = [r"C:\Windows\Fonts\yumindb.ttf", r"C:\Windows\Fonts\yumin.ttf", r"C:\Windows\Fonts\msmincho.ttc"]
+BG, GLOW, MINT = (5, 8, 7), (31, 181, 143), (159, 245, 220)
+FONTS = [r"C:\Windows\Fonts\YuGothL.ttc", r"C:\Windows\Fonts\YuGothR.ttc", r"C:\Windows\Fonts\msgothic.ttc"]
 
 
 def font(size):
@@ -22,19 +21,17 @@ def font(size):
 
 def render(size):
     s = 4 * size  # supersample
-    seal = Image.new("L", (s, s), 0)
-    d = ImageDraw.Draw(seal)
-    m = s * 0.19  # inside the maskable safe zone
-    d.rounded_rectangle([m, m, s - m, s - m], radius=s * 0.07, fill=255)
-    d.text((s / 2, s / 2 + s * 0.005), "続", font=font(int(s * 0.44)), fill=0, anchor="mm")
-    # worn ink: a few paper-coloured specks and a slightly soft edge, the same every run
-    rnd = random.Random(7)
-    for _ in range(60):
-        x, y, r = rnd.uniform(m, s - m), rnd.uniform(m, s - m), rnd.uniform(s * 0.0015, s * 0.0045)
-        d.ellipse([x - r, y - r, x + r, y + r], fill=0)
-    seal = seal.filter(ImageFilter.GaussianBlur(s * 0.0025)).rotate(-4, resample=Image.BICUBIC)
-    img = Image.new("RGB", (s, s), PAPER)
-    img.paste(Image.new("RGB", (s, s), SHU), (0, 0), seal)
+    img = Image.new("RGB", (s, s), BG)
+    # soft glow behind the character, inside the maskable safe zone
+    glow = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(glow).ellipse([s * 0.18, s * 0.16, s * 0.82, s * 0.8], fill=110)
+    glow = glow.filter(ImageFilter.GaussianBlur(s * 0.12))
+    img.paste(Image.new("RGB", (s, s), GLOW), (0, 0), glow)
+    # the character, plus a blurred copy of it as its own light
+    text = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(text).text((s / 2, s / 2 + s * 0.01), "続", font=font(int(s * 0.5)), fill=255, anchor="mm")
+    img.paste(Image.new("RGB", (s, s), (62, 230, 181)), (0, 0), text.filter(ImageFilter.GaussianBlur(s * 0.025)).point(lambda v: v * 0.7))
+    img.paste(Image.new("RGB", (s, s), MINT), (0, 0), text)
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -43,10 +40,11 @@ def main():
     for name, size in [("icon-192.png", 192), ("icon-512.png", 512), ("apple-touch-icon.png", 180)]:
         render(size).save(OUT / name)
     (OUT / "icon.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#f7f3ea"/>'
-        '<g transform="rotate(-4 32 32)"><rect x="10" y="10" width="44" height="44" rx="5" fill="#c8161d"/>'
-        '<text x="32" y="42.5" font-size="29" text-anchor="middle" fill="#fffdf8" font-weight="700"'
-        ' font-family="Hiragino Mincho ProN, Yu Mincho, YuMincho, serif">続</text></g></svg>\n',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><radialGradient id="g">'
+        '<stop offset="0" stop-color="#1fb58f" stop-opacity=".55"/><stop offset="1" stop-color="#1fb58f" stop-opacity="0"/>'
+        '</radialGradient></defs><rect width="64" height="64" rx="14" fill="#050807"/><circle cx="32" cy="31" r="26" fill="url(#g)"/>'
+        '<text x="32" y="42" font-size="30" text-anchor="middle" fill="#9ff5dc" font-weight="300"'
+        ' font-family="Hiragino Sans, Yu Gothic, YuGothic, sans-serif">続</text></svg>\n',
         encoding="utf-8")
     print("Icons geschrieben nach", OUT)
 

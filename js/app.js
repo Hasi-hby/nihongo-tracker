@@ -1,30 +1,34 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.0.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.0.0';
-import { Sync } from './sync.js?v=2.0.0';
-import { parseInbox } from './inbox.js?v=2.0.0';
-import * as St from './stats.js?v=2.0.0';
-import * as Ch from './charts.js?v=2.0.0';
-import { buildExport } from './export.js?v=2.0.0';
-import { zip } from './zip.js?v=2.0.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.1.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.1.0';
+import { Sync } from './sync.js?v=2.1.0';
+import { parseInbox } from './inbox.js?v=2.1.0';
+import * as St from './stats.js?v=2.1.0';
+import * as Ch from './charts.js?v=2.1.0';
+import { buildExport } from './export.js?v=2.1.0';
+import { zip } from './zip.js?v=2.1.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.0.0';
+} from './util.js?v=2.1.0';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const $ = (sel, root = document) => root.querySelector(sel);
-// traditional Japanese colours (和色) for activities without a colour of their own
-const PALETTE = ['#165e83', '#89c3eb', '#d0af4c', '#e16b8c', '#7058a3', '#7ebea5', '#c39143', '#d05a6e', '#5b7e91', '#93b69c'];
-// colours of the first design, swapped once for their 和色 counterparts (colours picked by hand stay)
+// activity colours that read well on the dark background
+const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
+// default colours of earlier designs, swapped once for the current ones (colours picked by hand stay)
 const OLD_COLORS = {
-  '#34d399': '#165e83', '#8fb3e8': '#89c3eb', '#e8c170': '#d0af4c', '#f472b6': '#e16b8c', '#a78bfa': '#7058a3',
-  '#2dd4bf': '#7ebea5', '#fb923c': '#c39143', '#f87171': '#d05a6e', '#38bdf8': '#5b7e91', '#a3e635': '#93b69c',
+  // first design
+  '#34d399': '#3ee6b5', '#8fb3e8': '#7aa2ff', '#e8c170': '#ffd27a', '#f472b6': '#ff9ec4', '#a78bfa': '#b9a6ff',
+  '#2dd4bf': '#7fd1c7', '#fb923c': '#e9a23b', '#f87171': '#ff8a6b', '#38bdf8': '#8fd3ff', '#a3e635': '#c5e478',
+  // 和 design (2.0)
+  '#165e83': '#3ee6b5', '#89c3eb': '#7aa2ff', '#d0af4c': '#ffd27a', '#e16b8c': '#ff9ec4', '#7058a3': '#b9a6ff',
+  '#7ebea5': '#7fd1c7', '#c39143': '#e9a23b', '#d05a6e': '#ff8a6b', '#5b7e91': '#8fd3ff', '#93b69c': '#c5e478',
 };
 
 const S = {
   logs: new Map(),
   meta: defaultMeta(),
   device: { token: '', owner: 'Hasi-hby', repo: 'nihongo-tracker-data', name: guessDevice() },
-  ui: { view: 'home', theme: 'auto', period: 'week', homeRange: 'day', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150 },
+  ui: { view: 'home', theme: 'dark', period: 'week', homeRange: 'day', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150 },
   ver: 0,
 };
 let cache = { ver: -1 };
@@ -230,7 +234,7 @@ async function timerAction(kind) {
 
 /** Short notes for what a new log completed: the day's seal, the chorus duty, goals. */
 function milestones(before, after) {
-  if (!before.sealed && after.sealed) return ['Tag erfüllt 済'];
+  if (!before.sealed && after.sealed) return ['Tag erfüllt ✓'];
   const notes = [];
   if (chorusCfg().on && before.chorus.state !== 'done' && after.chorus.state === 'done') {
     notes.push(before.chorus.state === 'penalty' ? 'Nachgeholt, deine Chorus-Serie läuft weiter' : 'Chorus erledigt');
@@ -272,32 +276,24 @@ const ICON_PATHS = {
 };
 const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
 
-/** The day's seal: 済 once something is logged, the chorus is done and every daily goal is met. */
-function sealMark(d) {
-  if (d.sealed) {
-    return `<div class="seal-wrap"><div class="seal ${justSealed ? 'stamp-in' : ''}" role="img" aria-label="Heute erfüllt">済</div><span class="seal-cap">erfüllt</span></div>`;
-  }
-  return `<div class="seal-wrap" title="Der Stempel kommt, wenn Chorus und alle Tagesziele erledigt sind">
-    <div class="seal seal-empty" aria-hidden="true"></div><span class="seal-cap">offen</span></div>`;
-}
-
-/** Top of the home page: streak, today and this week, a weekly goal, and the day's seal. */
+/** Top of the home page: the glowing streak, the last seven days, then today's lines. */
 function headCard(d) {
   const s = d.streak;
   const week = St.sumRange(d.dm, startOfWeek(d.today, ws()), d.today);
-  const wg = d.goals.find(({ q }) => q.scope === 'week');
+  const ms = St.nextMilestone(d.tot.total, St.avgPerDay(d.dm, d.today), d.today);
+  const when = ms.date ? ` · etwa ${fmtDate(ms.date, { year: ms.date.slice(0, 4) !== d.today.slice(0, 4) })}` : '';
   const record = s.current > 0 && s.current >= s.longest;
-  return `<section class="card head-card">
-    <div class="head-main">
-      <div class="head-streak"><b class="num">${fmtNum(s.current)}</b><span>${s.current === 1 ? 'Tag' : 'Tage'} am Stück</span></div>
-      <div class="muted small">${record ? 'Rekord' : `Rekord ${days(s.longest)}`} · ${fmtH(d.tot.total)} gesamt</div>
-      <div class="head-today">heute <b class="num">${fmtMin(d.dm.get(d.today)?.total || 0)}</b> · Woche <b class="num">${fmtH(week)}</b></div>
-      ${wg ? `<div class="head-goal"><div class="head-goal-top small"><span>${esc(goalName(wg.q))}</span>
-          <span class="num">${fmtH(wg.p.done)} / ${fmtH(wg.p.target)}</span></div>
-        <div class="bar ${wg.p.complete ? 'done' : ''}"><i style="width:${pct(wg.p.pct)}%"></i></div></div>` : ''}
-      ${s.atRisk ? '<div class="head-risk">Heute ist noch nichts geloggt. Ohne Log endet die Serie heute Nacht.</div>' : ''}
-    </div>
-    ${sealMark(d)}</section>`;
+  return `<section class="hero ${d.sealed ? 'done' : ''} ${d.sealed && justSealed ? 'just-done' : ''}">
+      <div class="hero-num num">${fmtNum(s.current)}</div>
+      <div class="hero-sub">${s.current === 1 ? 'Tag' : 'Tage'} am Stück${record ? ' · Rekord' : ''}${d.sealed ? ' · <span class="done-mark">Tag erfüllt ✓</span>' : ''}</div>
+      ${Ch.weekBars(d.dm, d.today)}
+    </section>
+    <div class="lines">
+      <div class="line"><span>heute <b class="num">${fmtMin(d.dm.get(d.today)?.total || 0)}</b></span><span>Woche <b class="num">${fmtH(week)}</b></span></div>
+      ${s.atRisk ? '<div class="line warn">Heute ist noch nichts geloggt. Ohne Log endet die Serie heute Nacht.</div>' : ''}
+      <div class="line"><span class="muted">Noch <b class="num">${fmtNum(Math.ceil(ms.leftMin / 60))} h</b> bis ${fmtNum(ms.hours)} h${when}</span></div>
+      ${chorusBlock(d)}
+    </div>`;
 }
 
 function logItem(l, { date = true } = {}) {
@@ -345,45 +341,39 @@ function chorusCard(d) {
     </div></div>`;
 }
 
-/** Today's chorus duty, or the catch-up day after a missed one. */
+/** Today's chorus duty as a line, or the catch-up day after a missed one. */
 function chorusBlock(d) {
   const cc = chorusCfg();
   if (!cc.on) return '';
   const c = d.chorus, need = c.need, done = c.doneToday;
-  const serie = `Chorus-Serie <b class="num">${fmtNum(c.current)}</b> Tag${c.current === 1 ? '' : 'e'} · Rekord ${fmtNum(c.longest)}`;
-  const logBtn = `<button class="btn btn-sm ${c.state === 'penalty' ? 'btn-seal' : 'btn-primary'}" data-action="chorus-log">${icon('plus', 14)} Jetzt loggen</button>`;
-  const bar = `<div class="bar"><i style="width:${pct(done / need)}%"></i></div>`;
+  const serie = `Serie ${days(c.current)}`;
+  const logBtn = `<button class="line-btn" data-action="chorus-log">Loggen</button>`;
 
   if (c.state === 'done') {
-    return `<div class="card chorus-q is-done"><span class="mini-seal" aria-hidden="true">済</span>
-      <div><b>Chorus erledigt</b> <span class="muted small">· heute ${fmtMin(done)} · ${serie}</span></div></div>`;
+    return `<div class="line"><span><span class="ok">✓</span> Chorus erledigt · heute ${fmtMin(done)}</span><span class="muted small">${serie}</span></div>`;
   }
   if (c.state === 'penalty') {
-    return `<div class="card chorus-q catchup"><div class="cq-head"><h2>Nachholtag</h2>
-      <span class="cq-count num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</span></div>
-      <div class="cq-text">Gestern kein Chorus. Heute <b>${fmtMin(need)}</b>, dann zählt gestern mit. Sonst endet deine
-        Chorus-Serie von <b>${fmtNum(c.current)} Tag${c.current === 1 ? '' : 'en'}</b>.</div>
-      <div class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</div>${bar}
-      <div class="cq-foot"><span class="cq-sub">${serie}</span>${logBtn}</div></div>`;
+    return `<div class="line warn block"><div class="line-top"><b>Nachholtag</b><span class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</span></div>
+      <div>Gestern kein Chorus. Heute <b>${fmtMin(need)}</b>, dann zählt gestern mit. Sonst endet deine Chorus-Serie von <b>${days(c.current)}</b>.</div>
+      <div class="bar"><i style="width:${pct(done / need)}%"></i></div>
+      <div class="line-top"><span class="num">${fmtMin(done)} / ${fmtMin(need)}</span>${logBtn}</div></div>`;
   }
   // open
   const hour = new Date().getHours();
-  let hint = `Ab ${cc.from} Uhr ist Chorus-Zeit.`, cls = '';
-  if (hour >= cc.from && hour < cc.until) { hint = `Jetzt ist Chorus-Zeit, ${fmtMin(need)} genügen.`; cls = 'in-window'; }
+  let hint = `ab ${cc.from} Uhr · ${serie}`, cls = '';
+  if (hour >= cc.from && hour < cc.until) { hint = `Jetzt ist Chorus-Zeit, ${fmtMin(need)} genügen`; cls = 'now'; }
   else if (hour >= cc.until) {
     hint = c.current > 0
-      ? `Zeitfenster vorbei. Noch <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>, sonst wird morgen ein Nachholtag.`
-      : `Zeitfenster vorbei, heute geht noch was: <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>.`;
+      ? `Noch <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>, sonst wird morgen ein Nachholtag`
+      : `Heute geht noch was: <b class="num" id="cqCountdown">${fmtClock(msUntilDayEnd())}</b>`;
     cls = 'late';
   }
-  return `<div class="card chorus-q ${cls}"><div class="cq-head"><h2>Chorus heute</h2>
-      <span class="cq-amt num">${fmtMin(done)} / ${fmtMin(need)}</span></div>
-    ${bar}<div class="cq-hint">${hint}</div>
-    <div class="cq-foot"><span class="cq-sub">${serie}</span>${logBtn}</div></div>`;
+  return `<div class="line block ${cls}"><div class="line-top"><span>Chorus heute <b class="num">${fmtMin(done)} / ${fmtMin(need)}</b></span>${logBtn}</div>
+    <div class="line-sub">${hint}</div></div>`;
 }
 
 function shortcutsCard() {
-  return `<div class="card"><div class="card-head"><h2>${icon('bolt')} Schnell loggen</h2>
+  return `<div class="card plain"><div class="card-head"><h2>${icon('bolt')} Schnell loggen</h2>
       <button class="btn btn-sm btn-ghost" data-action="goto-settings" data-anchor="shortcuts">${icon('edit', 14)} Bearbeiten</button></div>
     <div class="shortcuts">${shortcuts().map((sc, i) => `<button class="sc" data-action="shortcut" data-id="${esc(sc.id)}" style="--c:${colorOf(sc.a)}">
       <b>${esc(sc.a)}</b><span class="num">${fmtMin(sc.m)}</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}</button>`).join('')}
@@ -399,7 +389,7 @@ function goalsPanel(d) {
   const head = `<div class="card-head"><h2>${icon('target')} Ziele</h2>
     <button class="btn btn-sm btn-ghost" data-action="quest-new">${icon('plus', 14)} Ziel</button></div>`;
   if (!d.goals.length) {
-    return `<div class="card">${head}
+    return `<div class="card plain">${head}
       <p class="muted small" style="margin:0 0 10px">Eigene Ziele für den Tag, die Woche oder den Monat. Oder nimm einen Vorschlag:</p>
       <div class="row">
         <button class="btn btn-sm" data-action="quest-suggest" data-scope="day" data-a="" data-m="180">Täglich 3 h gesamt</button>
@@ -408,7 +398,7 @@ function goalsPanel(d) {
       </div></div>`;
   }
   const groups = St.QUEST_SCOPES.map((s) => [s.id, d.goals.filter(({ q }) => q.scope === s.id)]).filter(([, l]) => l.length);
-  return `<div class="card">${head}
+  return `<div class="card plain">${head}
     ${groups.map(([scope, list]) => `<div class="goal-group">${GOAL_TITLES[scope]}</div>${list.map(row).join('')}`).join('')}
     ${d.goals.some(({ q }) => q.scope === 'day') ? `<div class="quest-streak">Tagesziele erfüllt: <b class="num">${d.qh.streak}</b> Tage in Folge · Bestwert ${d.qh.best}</div>` : ''}
   </div>`;
@@ -497,7 +487,6 @@ function viewHome() {
     ${!S.device.token && !d.live.length ? `<div class="card"><div class="card-head"><h2>Willkommen</h2></div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
       <button class="btn btn-primary" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
-    ${chorusBlock(d)}
     <div class="cols-2">${shortcutsCard()}${goalsPanel(d)}</div>
     ${todayCard(d)}
     ${timerCard()}
@@ -689,7 +678,7 @@ function viewSettings() {
 
     <div class="card"><div class="card-head"><h2>Allgemein</h2></div><div class="form-grid">
       <label class="field"><span>Tagesende (Custom day end)</span><select data-change="set-dayend">${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${(set.dayEnd || 0) === h ? 'selected' : ''}>${h === 0 ? 'Mitternacht (Standard)' : `${h}:00 Uhr nachts`}</option>`).join('')}</select></label>
-      <div class="field"><span>Design</span><div class="seg">${[['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([k, l]) => `<button class="${S.ui.theme === k ? 'active' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`).join('')}</div></div>
+      <div class="field"><span>Design</span><div class="seg">${[['dark', 'Dunkel'], ['light', 'Hell']].map(([k, l]) => `<button class="${S.ui.theme === k ? 'active' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`).join('')}</div></div>
     </div></div>
 
     <div class="card" id="sec-export"><div class="card-head"><h2>${icon('history')} Export &amp; Backup</h2><span class="sub">${fmtNum(d.live.length)} Logs · ${fmtH(d.tot.total)}${persistent() ? '' : ' · ⚠ Browser-Speicher nicht verfügbar'}</span></div>
@@ -978,7 +967,9 @@ function render() {
   const v = VIEWS[S.ui.view] ? S.ui.view : 'home';
   document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   $('#main').innerHTML = VIEWS[v]();
-  justSealed = false; // the stamp animation plays once
+  justSealed = false; // the glow animation plays once
+  const td = $('#topDate');
+  if (td) td.textContent = fmtDate(today(), { weekday: true, year: false });
   if (v === 'stats') drawBars();
   if (v === 'logs') renderLogList();
   const hs = $('#heatScroll');
@@ -1015,9 +1006,9 @@ function renderSyncPill() {
 }
 
 function applyTheme() {
-  const t = S.ui.theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : S.ui.theme;
+  const t = S.ui.theme === 'light' ? 'light' : 'dark'; // dark unless chosen otherwise (an old 'auto' too)
   document.documentElement.dataset.theme = t;
-  document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#1a1917' : '#f7f3ea';
+  document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#050807' : '#f4f8f6';
 }
 
 function saveUI() {
@@ -1177,7 +1168,6 @@ function bindEvents() {
   addEventListener('online', () => sync.run());
   addEventListener('offline', () => sync.setStatus('offline'));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); } });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   let rt;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawBars(); }, 150); });
 

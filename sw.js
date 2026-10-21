@@ -3,12 +3,13 @@
 // All app files are requested with ?v=<version> (see tools/bump_version.py), so the
 // cache holds exactly one consistent set per version. GitHub API calls are never touched.
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const CACHE = `tsuzuku-${VERSION}`;
 const V = `?v=${VERSION}`;
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', `styles.css${V}`,
   ...['app', 'store', 'merge', 'sync', 'inbox', 'stats', 'charts', 'export', 'zip', 'util'].map((f) => `js/${f}.js${V}`),
+  'fonts/sora.woff2',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

@@ -1,7 +1,7 @@
 import {
   addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=2.0.0';
+} from './util.js?v=2.1.0';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {
@@ -213,6 +213,18 @@ export function recap(dm, range, today, ws = 1) {
     total, active, elapsed, best, top, avg: elapsed ? total / elapsed : 0, prev,
     pct: prev ? Math.round((total / prev - 1) * 100) : null,
   };
+}
+
+/** Average minutes per day over the `n` days before today (the running day would pull it down). */
+export function avgPerDay(dm, today, n = 30) {
+  return sumRange(dm, addDays(today, -n), addDays(today, -1)) / n;
+}
+
+/** The next full hundred hours above `totalMin`, minutes left, and the expected day at `perDay` minutes a day. */
+export function nextMilestone(totalMin, perDay, today) {
+  const hours = (Math.floor(totalMin / 6000) + 1) * 100;
+  const leftMin = hours * 60 - totalMin;
+  return { hours, leftMin, date: perDay > 0 ? addDays(today, Math.ceil(leftMin / perDay)) : null };
 }
 
 // ---- Quests (goals) -------------------------------------------------------

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aggregate, chorusInfo, dayMap, periodRange, questHistory, questProgress, recap, streakInfo, totals,
+  aggregate, avgPerDay, chorusInfo, dayMap, nextMilestone, periodRange, questHistory, questProgress, recap, streakInfo, totals,
 } from '../js/stats.js';
 import { addDays, dayOf, parseDuration } from '../js/util.js';
 
@@ -25,6 +25,20 @@ test('a gap breaks the streak but the longest one is kept', () => {
   assert.equal(s.current, 3);
   assert.equal(s.longest, 5);
   assert.equal(s.daysLogged, 8);
+});
+
+test('daily average leaves out the running day', () => {
+  const dm = dayMap([...logsOn(range('2026-09-21', 30), 240), ...logsOn(['2026-10-21'], 10)]);
+  assert.equal(avgPerDay(dm, '2026-10-21'), 240);
+});
+
+test('next milestone is the next full hundred hours, with a date at the current pace', () => {
+  const m = nextMilestone(2612 * 60, 240, '2026-10-21');
+  assert.equal(m.hours, 2700);
+  assert.equal(m.leftMin, 88 * 60);
+  assert.equal(m.date, '2026-11-12'); // 88 h at 4 h a day = 22 days
+  assert.equal(nextMilestone(2700 * 60, 0, '2026-10-21').hours, 2800);
+  assert.equal(nextMilestone(100, 0, '2026-10-21').date, null);
 });
 
 test('week buckets start on Monday and aggregate per activity', () => {
