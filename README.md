@@ -11,8 +11,10 @@ Am iPhone/iPad in Safari öffnen → Teilen → „Zum Home-Bildschirm“. Danac
 |---|---|
 | Jedes Gerät (IndexedDB) | vollständige Kopie, jede Eingabe wird sofort lokal gespeichert, auch offline |
 | `Hasi-hby/nihongo-tracker-data` (privat) | Sync zwischen den Geräten; jeder Sync ist ein Commit, also volle Versionshistorie |
-| `Desktop\nihongo-tracker-data` (OneDrive) | lokaler Klon, täglich per Task aktualisiert |
-| `Desktop\nihongo-tracker\backup` (OneDrive) | wöchentliche ZIP-Snapshots (12 Wochen) |
+| `Desktop\nihongo-tracker-data` | lokaler Klon, täglich per Task aktualisiert |
+| `Desktop\nihongo-tracker\backup` | wöchentliche ZIP-Snapshots (12 Wochen) |
+
+Klon und ZIPs liegen nur auf diesem PC (OneDrive synchronisiert hier nicht); außer den Geräten selbst ist das private GitHub-Repo die einzige Kopie außerhalb des PCs.
 
 Dieses Repo enthält nur Code, keine Daten.
 

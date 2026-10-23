@@ -1,28 +1,48 @@
 // Dependency-free SVG charts. Colors for text/grid come from CSS classes so both themes work.
 
-import { addDays, eachDay, esc, fmtDate, fmtMin, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday } from './util.js?v=2.2.3';
+import {
+  addDays, eachDay, esc, fmtDate, fmtH, fmtMin, fmtMinShort, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday,
+} from './util.js?v=2.3.0';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
-/** The last seven days as small bars; today is still running, so it is drawn lighter. */
-export function weekBars(dm, today) {
+/**
+ * The last seven days as small shimmering bars; the best finished day glows and carries its time.
+ * `avg` (minutes a day) adds a dashed reference line, and today, still running, gets a dashed
+ * outline up to that line, so the gap shows what is missing to an average day.
+ */
+export function weekBars(dm, today, { avg = 0 } = {}) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
   const mins = days.map((d) => dm.get(d)?.total || 0);
-  const max = Math.max(1, ...mins);
-  const bars = days.map((d, i) => `<i class="${d === today ? 'today' : ''}${mins[i] ? '' : ' empty'}"
-    style="height:${Math.max(6, Math.round((mins[i] / max) * 100))}%" title="${fmtDate(d, { weekday: true })} · ${fmtMin(mins[i])}"></i>`);
-  return `<div class="wbars">${bars.join('')}</div>
-    <div class="wbars-days">${days.map((d) => `<span>${WD_SHORT[weekday(d)]}</span>`).join('')}</div>`;
+  const max = Math.max(1, avg, ...mins);
+  const pctOf = (m) => Math.round((m / max) * 100);
+  const past = Math.max(...mins.slice(0, 6));
+  const best = past > 0 ? mins.indexOf(past) : -1;
+  const bars = days.map((d, i) => {
+    const isToday = i === 6;
+    const cls = [isToday && 'today', i === best && 'best', !mins[i] && 'empty'].filter(Boolean).join(' ');
+    const ghost = isToday && avg > mins[i] ? `<span class="wb-ghost" style="height:${pctOf(avg)}%"></span>` : '';
+    return `<div class="wb">${ghost}<i class="${cls}" style="height:${Math.max(6, pctOf(mins[i]))}%"
+      title="${fmtDate(d, { weekday: true })} · ${fmtMin(mins[i])}">${i === best ? `<b>${fmtMinShort(mins[i])}</b>` : ''}</i></div>`;
+  });
+  const line = avg > 0 ? `<span class="wb-avg" style="bottom:${pctOf(avg)}%"><span>Ø ${fmtH(avg)}</span></span>` : '';
+  return `<div class="wbars">${bars.join('')}${line}</div>
+    <div class="wbars-days">${days.map((d, i) => `<span${i === 6 ? ' class="today"' : ''}>${WD_SHORT[weekday(d)]}</span>`).join('')}</div>`;
 }
 
-/** Year heatmap, Monday-first rows, one column per week. */
+const GLOW_MIN = 360; // heatmap days from 6 h on shine
+
+/**
+ * Year heatmap, Monday-first rows, one column per week. Days from 6 h on shine: their cells are
+ * copied into one blurred layer underneath, a single filter instead of one per cell.
+ */
 export function heatmap(dm, year, { today, max = 480 } = {}) {
   const step = 15, cell = 12, left = 26, top = 4;
   const first = `${year}-01-01`, last = `${year}-12-31`;
   const start = startOfWeek(first, 1);
   const cols = Math.ceil((Math.round((Date.parse(last) - Date.parse(start)) / 864e5) + 1) / 7);
   const width = left + cols * step, height = top + 7 * step + 18;
-  const parts = [];
+  const parts = [], glow = [];
   let col = 0, row = 0;
   const monthX = {};
   for (const d of eachDay(start, addDays(start, cols * 7 - 1))) {
@@ -32,10 +52,14 @@ export function heatmap(dm, year, { today, max = 480 } = {}) {
       const m = +d.slice(5, 7) - 1;
       if (d.slice(8) === '01') monthX[m] = x;
       let cls = 'hm', style = '', label = mins ? fmtMin(mins) : 'nichts geloggt';
-      if (mins > 0) style = ` style="fill-opacity:${(0.22 + 0.78 * Math.min(1, mins / max)).toFixed(2)}"`;
+      if (mins >= GLOW_MIN) cls += ' hm-hi';
+      else if (mins > 0) style = ` style="fill-opacity:${(0.22 + 0.78 * Math.min(1, mins / max)).toFixed(2)}"`;
       else cls += ' hm-empty';
       if (d > today) cls += ' hm-future';
       if (d === today) cls += ' hm-today';
+      if (mins >= GLOW_MIN || d === today) {
+        glow.push(`<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5" opacity="${mins >= max || d === today ? 0.9 : 0.5}"/>`);
+      }
       parts.push(`<rect class="${cls}" data-day="${d}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5"${style}><title>${fmtDate(d, { weekday: true })} · ${label}</title></rect>`);
     }
     if (++row === 7) { row = 0; col++; }
@@ -46,7 +70,10 @@ export function heatmap(dm, year, { today, max = 480 } = {}) {
   ['Mo', '', 'Mi', '', 'Fr', '', ''].forEach((t, i) => {
     if (t) parts.push(`<text class="ax" x="0" y="${top + i * step + 10}">${t}</text>`);
   });
-  return `<svg class="heatmap" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Heatmap ${year}">${parts.join('')}</svg>`;
+  const defs = `<defs><filter id="hmGlow"><feGaussianBlur stdDeviation="2.6"/></filter>
+    <linearGradient id="hmHi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="hm-hi0"/><stop offset="1" class="hm-hi1"/></linearGradient></defs>`;
+  return `<svg class="heatmap" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Heatmap ${year}">${defs}
+    <g class="hm-glow" filter="url(#hmGlow)">${glow.join('')}</g>${parts.join('')}</svg>`;
 }
 
 const DRAW_MS = 800; // how long the ring takes to close when it animates; it pulses for exactly this long (.donut in styles.css)
@@ -72,7 +99,11 @@ export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } =
     off += len;
     return el;
   }) : [`<circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" class="grid-stroke" stroke-width="${stroke}"/>`];
-  return `<svg class="donut" style="--draw:${DRAW_MS}ms" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">
+  // the ring glows in its own colours: a blurred, fainter copy underneath (dark theme only, see styles.css)
+  const glow = `<defs><filter id="dnGlow" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="6" result="b"/>
+    <feComponentTransfer in="b" result="f"><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+    <feMerge><feMergeNode in="f"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  return `<svg class="donut" style="--draw:${DRAW_MS}ms" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">${glow}
     <g class="${total ? 'ring' : ''}">${arcs.join('')}</g>
     <g class="mid"><text class="donut-big" x="50%" y="48%" text-anchor="middle">${esc(center)}</text>
     <text class="ax" x="50%" y="61%" text-anchor="middle">${esc(sub)}</text></g></svg>`;
@@ -84,14 +115,23 @@ function niceMax(v) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
 }
 
-/** Stacked bars (hours per bucket and activity) with a dashed cumulative line on a second axis. */
-export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
+/**
+ * Stacked bars (hours per bucket and activity) that fade towards the baseline, the best bucket
+ * glowing, and the cumulative total as a glowing line over a soft area on a second axis. The line
+ * stops at the bucket holding `until` (today), so it does not run flat through the future.
+ */
+export function historyBars(agg, acts, { width = 700, height = 270, until = null } = {}) {
   const L = 36, R = 44, T = 12, B = 28, w = width - L - R, h = height - T - B;
   const n = agg.buckets.length;
   const maxH = niceMax(Math.max(...agg.buckets.map((b) => b.total / 60), 0.1));
   const maxC = niceMax(Math.max(agg.buckets.at(-1)?.cum / 60 || 0, 0.1));
   const slot = w / n, bw = Math.max(2, Math.min(38, slot * 0.68));
-  const out = [];
+  const top = Math.max(...agg.buckets.map((b) => b.total));
+  const best = top > 0 ? agg.buckets.findIndex((b) => b.total === top) : -1;
+  const pts = agg.buckets.filter((b) => !until || b.start <= until)
+    .map((b, i) => `${(L + i * slot + slot / 2).toFixed(1)},${(T + h - (b.cum / 60 / maxC) * h).toFixed(1)}`);
+  const out = [`<defs><linearGradient id="hbFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="hb-f0"/><stop offset="1" class="hb-f1"/></linearGradient>
+    <linearGradient id="hbArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="hb-a0"/><stop offset="1" class="hb-a1"/></linearGradient></defs>`];
   for (let i = 0; i <= 4; i++) {
     const y = T + h - (i / 4) * h;
     out.push(`<line class="gridline" x1="${L}" x2="${L + w}" y1="${y}" y2="${y}"/>`);
@@ -99,12 +139,15 @@ export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
     out.push(`<text class="ax" x="${L + w + 6}" y="${y + 4}">${nf.format((maxC * i) / 4)}</text>`);
   }
   const every = Math.ceil(n / 16);
-  const pts = [];
+  if (pts.length > 1) {
+    const x0 = pts[0].split(',')[0], x1 = pts.at(-1).split(',')[0];
+    out.push(`<path class="cum-area" d="M${x0},${T + h} L${pts.join(' L')} L${x1},${T + h} Z"/>`);
+  }
   agg.buckets.forEach((b, i) => {
     const x = L + i * slot + (slot - bw) / 2;
     let y = T + h;
     // one group per column, so a column can grow from the baseline as a whole (--i staggers it)
-    out.push(`<g class="col" style="--i:${i}">`);
+    out.push(`<g class="col${i === best ? ' best' : ''}" style="--i:${i}">`);
     for (const a of acts) {
       const m = b.by[a.name];
       if (!m) continue;
@@ -112,12 +155,13 @@ export function historyBars(agg, acts, { width = 700, height = 270 } = {}) {
       y -= bh;
       out.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, bh).toFixed(1)}" fill="${a.color}" rx="${bw > 8 ? 2 : 0}"><title>${esc(b.title)} · ${esc(a.name)}: ${fmtMin(m)}</title></rect>`);
     }
+    // one shade over the whole column: bright on top, sinking into the background at the baseline
+    if (b.total > 0) out.push(`<rect class="fade" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(T + h - y).toFixed(1)}"/>`);
     out.push('</g>');
     if (b.total > 0) out.push(`<rect class="hit" x="${x}" y="${T}" width="${bw}" height="${h}"><title>${esc(b.title)} · ${fmtMin(b.total)}</title></rect>`);
     if (i % every === 0) out.push(`<text class="ax" x="${(x + bw / 2).toFixed(1)}" y="${height - 8}" text-anchor="middle">${esc(b.label)}</text>`);
-    pts.push(`${(x + bw / 2).toFixed(1)},${(T + h - (b.cum / 60 / maxC) * h).toFixed(1)}`);
   });
-  out.push(`<polyline class="cum" points="${pts.join(' ')}"/>`);
+  if (pts.length) out.push(`<polyline class="cum" points="${pts.join(' ')}"/>`);
   out.push(`<text class="ax" x="4" y="${T + 2}" transform="rotate(-90 4 ${T + 2})" text-anchor="end">Stunden</text>`);
   return `<svg class="bars" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">${out.join('')}</svg>`;
 }

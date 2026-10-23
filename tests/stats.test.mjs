@@ -4,9 +4,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aggregate, avgPerDay, chorusInfo, dayMap, nextMilestone, periodRange, questHistory, questProgress, recap, streakInfo, totals,
+  aggregate, avgPerDay, chorusInfo, dayMap, nextMilestone, periodRange, questHistory, questPace, questProgress, recap, streakInfo,
+  totals,
 } from '../js/stats.js';
-import { addDays, dayOf, parseDuration } from '../js/util.js';
+import { addDays, dayOf, fmtMinShort, parseDuration } from '../js/util.js';
 
 const logsOn = (days, m = 30, a = 'Immersion') => days.map((d, i) => ({ id: d + i, d, t: 0, a, m, u: 0 }));
 const range = (start, n) => Array.from({ length: n }, (_, i) => addDays(start, i));
@@ -64,6 +65,79 @@ test('quests: daily progress and cleared-day history', () => {
   assert.equal(h.hist.get('2026-10-12'), false);
 });
 
+// ---- goal pace (2026-10-19 is a Monday) ----
+const weekGoal = { id: 'w', scope: 'week', a: 'Immersion', m: 1680 }; // 28 h a week = 4 h a day
+
+test('pace: a Monday without logs is on plan, today still open', () => {
+  const p = questPace(weekGoal, dayMap([]), '2026-10-19');
+  assert.equal(p.expected, 0);
+  assert.equal(p.ahead, 0);
+  assert.equal(p.expectedPct, 0);
+  assert.equal(p.left, 1680);
+  assert.equal(p.daysLeft, 7);
+  assert.equal(p.perDay, 240);
+  assert.equal(p.end, '2026-10-25');
+  assert.equal(questPace({ ...weekGoal, scope: 'day' }, dayMap([]), '2026-10-19'), null);
+});
+
+test('pace: mid-week ahead and behind plan, other activities do not count', () => {
+  const mtw = range('2026-10-19', 3);
+  const ahead = questPace(weekGoal, dayMap([...logsOn(mtw, 300), ...logsOn(mtw, 60, 'Anki')]), '2026-10-22');
+  assert.equal(ahead.expected, 720); // three of seven days
+  assert.equal(ahead.done, 900);
+  assert.equal(ahead.ahead, 180);
+  assert.equal(ahead.daysLeft, 4);
+  assert.equal(ahead.perDay, 780 / 4);
+  const behind = questPace(weekGoal, dayMap(logsOn(mtw, 150)), '2026-10-22');
+  assert.equal(behind.ahead, -270);
+  assert.equal(behind.left, 1230);
+  assert.equal(behind.perDay, 1230 / 4);
+  assert.equal(behind.complete, false);
+});
+
+test('pace: the last day of the week needs the rest today', () => {
+  const p = questPace(weekGoal, dayMap(logsOn(range('2026-10-19', 6), 200)), '2026-10-25');
+  assert.equal(p.daysLeft, 1);
+  assert.equal(p.expected, 1440);
+  assert.equal(p.ahead, -240);
+  assert.equal(p.perDay, p.left);
+  assert.equal(p.left, 480);
+});
+
+test('pace: a reached goal has nothing left', () => {
+  const p = questPace(weekGoal, dayMap(logsOn(range('2026-10-19', 4), 450)), '2026-10-22');
+  assert.equal(p.complete, true);
+  assert.equal(p.left, 0);
+  assert.equal(p.perDay, 0);
+  assert.equal(p.ahead, 1800 - 720);
+});
+
+test('pace: month goals spread over 31 and 30 days', () => {
+  const oct = questPace({ ...weekGoal, scope: 'month', m: 3100 }, dayMap(logsOn(range('2026-10-01', 10), 80)), '2026-10-11');
+  assert.equal(oct.expected, 1000); // ten of 31 days
+  assert.equal(oct.ahead, -200);
+  assert.equal(oct.daysLeft, 21);
+  assert.equal(oct.end, '2026-10-31');
+  const nov = questPace({ ...weekGoal, scope: 'month', m: 3000 }, dayMap(logsOn(range('2026-11-01', 15), 100)), '2026-11-16');
+  assert.equal(nov.expected, 1500); // 15 of 30 days
+  assert.equal(nov.expectedPct, 0.5);
+  assert.equal(nov.ahead, 0);
+  assert.equal(nov.daysLeft, 15);
+  assert.equal(nov.perDay, 100);
+  assert.equal(nov.end, '2026-11-30');
+});
+
+test('pace: a week starting on Sunday', () => {
+  const dm = dayMap(logsOn(['2026-10-18'], 240));
+  const p = questPace(weekGoal, dm, '2026-10-19', 0);
+  assert.equal(p.expected, 240); // Sunday is already past
+  assert.equal(p.done, 240);
+  assert.equal(p.ahead, 0);
+  assert.equal(p.daysLeft, 6);
+  assert.equal(p.end, '2026-10-24');
+  assert.equal(questPace(weekGoal, dm, '2026-10-19', 1).done, 0); // with Monday weeks that Sunday was last week
+});
+
 // ---- chorus streak + penalty quest ----
 const chorusDays = (spec) => dayMap(Object.entries(spec).map(([d, m], i) => ({ id: `c${i}`, d, t: 0, a: 'phonetic training', m, u: 0 })));
 
@@ -114,6 +188,13 @@ test('duration parsing', () => {
   assert.equal(parseDuration('1h30'), 90);
   assert.equal(parseDuration('1,5 h'), 90);
   assert.ok(Number.isNaN(parseDuration('abc')));
+});
+
+test('short duration for tiles and chart labels', () => {
+  assert.equal(fmtMinShort(45), '45 min');
+  assert.equal(fmtMinShort(319), '5 h 19');
+  assert.equal(fmtMinShort(304.4), '5 h 04');
+  assert.equal(fmtMinShort(120), '2 h');
 });
 
 // Compares the imported data with the values the LingoTrack dashboard showed at import time.

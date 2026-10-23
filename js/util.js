@@ -77,6 +77,14 @@ export function fmtMin(min) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
+/** minutes -> "5 h 09" / "45 min": for tight spots like big tiles and chart labels */
+export function fmtMinShort(min) {
+  min = Math.round(min);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h} h ${pad(m)}` : `${h} h`;
+}
+
 /** "45", "1:30", "1h30", "1 h 30 min", "1,5h" -> minutes (or NaN) */
 export function parseDuration(text) {
   const t = String(text).trim().toLowerCase().replace(',', '.');

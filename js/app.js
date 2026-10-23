@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.2.3';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.2.3';
-import { Sync } from './sync.js?v=2.2.3';
-import { parseInbox } from './inbox.js?v=2.2.3';
-import * as St from './stats.js?v=2.2.3';
-import * as Ch from './charts.js?v=2.2.3';
-import { buildExport } from './export.js?v=2.2.3';
-import { zip } from './zip.js?v=2.2.3';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.3.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.3.0';
+import { Sync } from './sync.js?v=2.3.0';
+import { parseInbox } from './inbox.js?v=2.3.0';
+import * as St from './stats.js?v=2.3.0';
+import * as Ch from './charts.js?v=2.3.0';
+import { buildExport } from './export.js?v=2.3.0';
+import { zip } from './zip.js?v=2.3.0';
 import {
-  addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.2.3';
+  addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
+} from './util.js?v=2.3.0';
 
-const VERSION = '2.2.3';
+const VERSION = '2.3.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -300,20 +300,31 @@ const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${
 function headCard(d) {
   const s = d.streak;
   const week = St.sumRange(d.dm, startOfWeek(d.today, ws()), d.today);
-  const ms = St.nextMilestone(d.tot.total, St.avgPerDay(d.dm, d.today), d.today);
-  const when = ms.date ? ` · etwa ${fmtDate(ms.date, { year: ms.date.slice(0, 4) !== d.today.slice(0, 4) })}` : '';
+  const avg = St.avgPerDay(d.dm, d.today);
+  const ms = St.nextMilestone(d.tot.total, avg, d.today);
+  const when = ms.date ? `${SEP}<span class="nw">etwa ${fmtDate(ms.date, { year: ms.date.slice(0, 4) !== d.today.slice(0, 4) })}</span>` : '';
   const record = s.current > 0 && s.current >= s.longest;
   return `<section class="hero ${d.sealed ? 'done' : ''} ${d.sealed && justSealed ? 'just-done' : ''}">
       <div class="hero-num num">${fmtNum(s.current)}</div>
       <div class="hero-sub">${s.current === 1 ? 'Tag' : 'Tage'} am Stück${record ? ' · Rekord' : ''}${d.sealed ? ' · <span class="done-mark">Tag erfüllt ✓</span>' : ''}</div>
-      ${Ch.weekBars(d.dm, d.today)}
+      ${todayProgress(d, avg)}
+      ${Ch.weekBars(d.dm, d.today, { avg })}
     </section>
     <div class="lines">
       <div class="line"><span>heute <b class="num ${justLogged ? 'flash' : ''}">${fmtMin(d.dm.get(d.today)?.total || 0)}</b></span><span>Woche <b class="num">${fmtH(week)}</b></span></div>
       ${s.atRisk ? '<div class="line warn">Heute ist noch nichts geloggt. Ohne Log endet die Serie heute Nacht.</div>' : ''}
-      <div class="line"><span class="muted">Noch <b class="num">${fmtNum(Math.ceil(ms.leftMin / 60))} h</b> bis ${fmtNum(ms.hours)} h${when}</span></div>
+      <div class="line"><span class="muted"><span class="nw"><b class="num">${fmtNum(Math.floor(d.tot.total / 60))} h</b> gesamt</span>${SEP}<span class="nw">noch <b class="num">${fmtNum(Math.ceil(ms.leftMin / 60))} h</b> bis ${fmtNum(ms.hours)} h</span>${when}</span></div>
       ${chorusBlock(d)}
     </div>`;
+}
+
+/** A thin line under the streak: how far today is towards an average day (last 30 days). */
+function todayProgress(d, avg) {
+  if (!(avg > 0)) return '';
+  const done = d.dm.get(d.today)?.total || 0;
+  const reached = done >= avg;
+  return `<div class="tprog ${reached ? 'reached' : ''}"><div class="tprog-bar"><i style="width:${pct(done / avg)}%"></i></div>
+    <div class="tprog-txt">${reached ? `Schnitt erreicht ✓ (${fmtH(avg)} am Tag)` : `noch <b class="num">${fmtMin(avg - done)}</b> bis zu deinem Schnitt`}</div></div>`;
 }
 
 function logItem(l, { date = true } = {}) {
@@ -329,6 +340,8 @@ const scopeOf = (q) => St.QUEST_SCOPES.find((s) => s.id === q.scope) || St.QUEST
 const goalName = (q) => q.name || `${q.a || 'Gesamt'}: ${fmtMin(q.m)}${scopeOf(q).per}`;
 const GOAL_TITLES = { day: 'Tagesziele', week: 'Wochenziele', month: 'Monatsziele' };
 const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+// between phrases kept whole with .nw: a wrapping line breaks after the dot, never inside a phrase
+const SEP = ' · ';
 
 /** Statistics page: chorus streak numbers and the last five weeks as a small calendar. */
 function chorusCard(d) {
@@ -400,12 +413,24 @@ function shortcutsCard() {
       <button class="sc sc-add" data-action="new-log"><b>${icon('plus', 16)} Aktivität</b><span>frei eintragen</span><kbd>N</kbd></button></div></div>`;
 }
 
+/** "noch 11 h 5 min · 55 min vor Plan · dann 3 h 42 min / Tag bis So" for a running week or month goal. */
+function paceLine(q, pace) {
+  const ahead = pace.ahead >= 15;
+  const off = Math.abs(pace.ahead) < 15 ? 'im Plan' : `${fmtMin(Math.abs(pace.ahead))} ${ahead ? 'vor' : 'hinter'} Plan`;
+  const until = q.scope === 'week' ? WD[new Date(`${pace.end}T12:00`).getDay()] : fmtDate(pace.end, { year: false });
+  const rest = pace.daysLeft > 1 ? `dann ${fmtMin(Math.ceil(pace.perDay))} / Tag bis ${until}` : 'letzter Tag';
+  return `<span class="nw">noch ${fmtMin(pace.left)}</span>${SEP}<span class="nw${ahead ? ' pace-ahead' : ''}">${off}</span>${SEP}<span class="nw">${rest}</span>`;
+}
+
 function goalsPanel(d) {
-  const row = ({ q, p }) => `<button class="quest ${p.complete ? 'done' : ''}" data-action="quest-edit" data-id="${esc(q.id)}">
+  const row = ({ q, p }) => {
+    const pace = p.complete ? null : St.questPace(q, d.dm, d.today, ws());
+    return `<button class="quest ${p.complete ? 'done' : ''}" data-action="quest-edit" data-id="${esc(q.id)}">
       <div class="quest-top"><span class="quest-name">${esc(goalName(q))}</span>
         <span class="num quest-amt">${fmtMin(p.done)} / ${fmtMin(p.target)}</span></div>
-      <div class="bar ${p.complete ? 'done' : ''}"><i style="width:${pct(p.pct)}%"></i></div>
-      <div class="quest-sub">${p.complete ? 'Erreicht' : `noch ${fmtMin(p.target - p.done)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
+      <div class="bar ${p.complete ? 'done' : ''}"><i style="width:${pct(p.pct)}%"></i>${pace?.expected > 0 ? `<b class="pace" style="left:${pct(pace.expectedPct)}%"></b>` : ''}</div>
+      <div class="quest-sub">${p.complete ? 'Erreicht' : pace ? paceLine(q, pace) : `noch ${fmtMin(p.target - p.done)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
+  };
   const head = `<div class="card-head"><h2>${icon('target')} Ziele</h2>
     <button class="btn btn-sm btn-ghost" data-action="quest-new">${icon('plus', 14)} Ziel</button></div>`;
   if (!d.goals.length) {
@@ -516,7 +541,21 @@ function viewHome() {
   </div>`;
 }
 
-const RECAP_TITLE = { week: 'Wochenrückblick', month: 'Monatsrückblick', year: 'Jahresrückblick', all: 'Gesamtrückblick' };
+const PREV = { week: 'Vorwoche', month: 'Vormonat', year: 'Vorjahr' };
+
+/** The period's big numbers as tiles: total, average day, best day and the change (all-time: top activity). */
+function recapTiles(rc, p, running) {
+  const big = (m) => (m >= 6000 ? `${fmtNum(Math.round(m / 60))} h` : fmtH(m));
+  const tile = (label, value, sub, cls = '') => `<div class="tile ${cls}"><span>${label}</span><b class="num">${value}</b><small>${sub}</small></div>`;
+  const last = rc.pct != null
+    ? tile(`ggü. ${PREV[p]}`, `${rc.pct >= 0 ? '+' : '−'}${Math.abs(rc.pct)} %`, running ? 'gleich viele Tage' : 'ganzer Zeitraum', rc.pct < 0 ? 'tile-neg' : '')
+    : rc.top ? tile('Top-Aktivität', big(rc.top[1]), esc(rc.top[0])) : '';
+  return `<div class="tiles">
+    ${tile('Gesamt', big(rc.total), `${fmtNum(rc.active)} von ${fmtNum(rc.elapsed)} ${rc.elapsed === 1 ? 'Tag' : 'Tagen'} aktiv`)}
+    ${tile('Ø pro Tag', fmtMinShort(rc.avg), `über ${days(rc.elapsed)}`)}
+    ${tile('Bester Tag', rc.best ? fmtMinShort(rc.best.total) : '–', rc.best ? fmtDate(rc.best.d, { weekday: true, year: p === 'all' }) : 'noch keiner')}
+    ${last}</div>`;
+}
 
 function viewStats() {
   const d = D(), p = S.ui.period, anchor = S.ui.anchor || d.today;
@@ -539,16 +578,9 @@ function viewStats() {
           <div class="legend" style="flex:1;min-width:180px">${list.map((a) => `<div class="legend-row"><span class="sw" style="background:${a.color}"></span>
             <span>${esc(a.name)}</span><span class="num">${fmtH(agg.by[a.name])}</span><span class="pct num">${Math.round((agg.by[a.name] / agg.total) * 100)} %</span></div>`).join('') || '<span class="muted">Keine Logs in diesem Zeitraum.</span>'}</div>
         </div>
-        <div class="recap"><h3>${RECAP_TITLE[p]}</h3><div class="stat-list">
-          <div class="stat-row"><span>Gesamt</span><b>${fmtH(rc.total)}</b></div>
-          ${rc.pct != null ? `<div class="stat-row"><span>ggü. gleichem Zeitraum davor</span><b class="${rc.pct >= 0 ? 'up' : 'down'}">${rc.pct >= 0 ? '+' : ''}${rc.pct} %</b></div>` : ''}
-          <div class="stat-row"><span>Ø pro Tag</span><b>${fmtMin(rc.avg)}</b></div>
-          <div class="stat-row"><span>Aktive Tage</span><b>${rc.active} / ${rc.elapsed}</b></div>
-          ${rc.best ? `<div class="stat-row"><span>Bester Tag (${fmtDate(rc.best.d, { weekday: true })})</span><b>${fmtMin(rc.best.total)}</b></div>` : ''}
-          ${rc.top ? `<div class="stat-row"><span>Top-Aktivität: ${esc(rc.top[0])}</span><b>${fmtH(rc.top[1])}</b></div>` : ''}
-        </div></div>
+        ${recapTiles(rc, p, isNow)}
       </div></div>
-    <div class="card" data-swap="stats"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · gestrichelt: kumuliert (rechte Achse)</span></div>
+    <div class="card" data-swap="stats"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · Linie: kumuliert (rechte Achse)</span></div>
       <div class="scroll-x" id="barsBox" data-range="1"></div></div>
     ${chorusCard(d)}
     <div class="card" data-swap="stats"><div class="card-head"><h2>Aktivitäten</h2></div><div class="list">
@@ -565,7 +597,7 @@ function drawBars() {
   const range = St.periodRange(S.ui.period, S.ui.anchor || d.today, { ws: ws(), firstDay: d.firstDay, today: d.today });
   const agg = St.aggregate(d.dm, range);
   const width = Math.max(box.clientWidth, range.buckets.length * 14, 320);
-  box.innerHTML = Ch.historyBars(agg, chartActs(agg.by), { width, height: 270 });
+  box.innerHTML = Ch.historyBars(agg, chartActs(agg.by), { width, height: 270, until: d.today });
   box.scrollLeft = box.scrollWidth;
 }
 
@@ -721,7 +753,7 @@ function viewSettings() {
         <button class="btn btn-sm" data-action="export-one" data-file="tsuzuku-backup.json" data-type="application/json">Backup (JSON)</button>
         <span class="spacer"></span>
         <label class="btn btn-sm">Backup einspielen<input type="file" id="importFile" accept=".json,application/json" hidden></label></div>
-      <p class="muted small">Unabhängig von dieser App liegen deine Daten als lesbare Dateien im privaten Repo <code>${esc(S.device.owner)}/${esc(S.device.repo)}</code> (mit kompletter Versionshistorie) und als Kopie in OneDrive. Einspielen führt zusammen und überschreibt nichts Neueres.</p></div>
+      <p class="muted small">Unabhängig von dieser App liegen deine Daten als lesbare Dateien im privaten Repo <code>${esc(S.device.owner)}/${esc(S.device.repo)}</code> (mit kompletter Versionshistorie), am PC zusätzlich im Klon <code>Desktop\\nihongo-tracker-data</code> und in wöchentlichen ZIP-Backups. Einspielen führt zusammen und überschreibt nichts Neueres.</p></div>
 
     <p class="muted small" style="text-align:center">Tsuzuku 続く ${VERSION} · ${esc(S.device.name)}</p>
   </div>`;

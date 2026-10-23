@@ -1,7 +1,7 @@
 import {
   addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=2.2.3';
+} from './util.js?v=2.3.0';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {
@@ -242,6 +242,28 @@ export function questProgress(q, dm, today, ws = 1) {
   let done = 0;
   for (const d of eachDay(s, today)) done += questAmount(q, dm.get(d));
   return { done, target: q.m, pct: Math.min(1, done / q.m), complete: done >= q.m };
+}
+
+/**
+ * Pace of a week or month goal against the target spread evenly over the period. Today still
+ * counts as open, so a Monday without logs is on plan. `end` is the period's last day. Null for daily goals.
+ */
+export function questPace(q, dm, today, ws = 1) {
+  if (q.scope !== 'week' && q.scope !== 'month') return null;
+  const week = q.scope === 'week';
+  const s = week ? startOfWeek(today, ws) : startOfMonth(today);
+  const end = week ? addDays(s, 6) : endOfMonth(today);
+  const len = week ? 7 : +end.slice(8);
+  let done = 0, before = -1;
+  for (const d of eachDay(s, today)) {
+    done += questAmount(q, dm.get(d));
+    before++;
+  }
+  const expected = (q.m * before) / len, left = Math.max(0, q.m - done), daysLeft = len - before;
+  return {
+    done, expected, ahead: done - expected, left, daysLeft, perDay: left / daysLeft, end,
+    expectedPct: Math.min(1, expected / q.m), complete: done >= q.m,
+  };
 }
 
 /** Daily quest history: a day is cleared when every daily quest active that day was met. */
