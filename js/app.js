@@ -1,16 +1,16 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.3.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.3.0';
-import { Sync } from './sync.js?v=2.3.0';
-import { parseInbox } from './inbox.js?v=2.3.0';
-import * as St from './stats.js?v=2.3.0';
-import * as Ch from './charts.js?v=2.3.0';
-import { buildExport } from './export.js?v=2.3.0';
-import { zip } from './zip.js?v=2.3.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.3.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.3.1';
+import { Sync } from './sync.js?v=2.3.1';
+import { parseInbox } from './inbox.js?v=2.3.1';
+import * as St from './stats.js?v=2.3.1';
+import * as Ch from './charts.js?v=2.3.1';
+import { buildExport } from './export.js?v=2.3.1';
+import { zip } from './zip.js?v=2.3.1';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.3.0';
+} from './util.js?v=2.3.1';
 
-const VERSION = '2.3.0';
+const VERSION = '2.3.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -266,18 +266,28 @@ function toast(msg, action = null) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 220); }, action ? 6000 : 3000);
 }
 
-/** Count a number element up from zero, fast at first, then slowing down. */
-function countTo(el) {
-  const target = parseInt(el?.textContent.replace(/\D/g, ''), 10);
-  if (!(target > 1)) return;
-  const t0 = performance.now(), dur = 900;
+/** Count an element's number up from zero; `ease` maps time (0..1) to progress, `fmt` writes each step. */
+function countNumber(el, target, { fmt = (v) => fmtNum(Math.round(v)), dur = 900, ease = (p) => 1 - (1 - p) ** 3 } = {}) {
+  if (!el || !(target > 0)) return;
+  const t0 = performance.now();
   const step = (now) => {
     if (!el.isConnected) return;
     const p = Math.min(1, (now - t0) / dur);
-    el.textContent = fmtNum(Math.round(target * (1 - (1 - p) ** 3)));
+    el.textContent = fmt(p < 1 ? target * ease(p) : target); // the last step is exactly the rendered value
     if (p < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
+}
+
+/** The streak counts up from zero, fast at first, then slowing down. */
+function countTo(el) {
+  const target = parseInt(el?.textContent.replace(/\D/g, ''), 10);
+  if (target > 1) countNumber(el, target);
+}
+
+/** The number in a ring grows in step with the ring as it closes. */
+function countRing(el) {
+  countNumber(el, +el.dataset.count, { fmt: el.dataset.fmt === 'h' ? fmtH : fmtMin, dur: Ch.DRAW_MS, ease: Ch.sweptAt });
 }
 
 // ---- Views ----------------------------------------------------------------------------
@@ -505,7 +515,7 @@ function todayCard(d) {
       <div class="seg"><button class="${week ? '' : 'active'}" data-action="home-range" data-r="day">Heute</button>
         <button class="${week ? 'active' : ''}" data-action="home-range" data-r="week">Woche</button></div></div>
     <div class="today-body">
-      <div class="today-donut">${Ch.donut(list.map((a) => ({ label: a.name, value: by[a.name], color: a.color })), { size: 176, stroke: 22, center: fmtMin(total), sub: `${count} Logs` })}
+      <div class="today-donut">${Ch.donut(list.map((a) => ({ label: a.name, value: by[a.name], color: a.color })), { size: 176, stroke: 22, center: fmtMin(total), sub: `${count} Logs`, count: { to: total, fmt: 'min' } })}
         ${share != null ? `<div class="today-share ${share >= 100 ? 'up' : ''}">${share >= 100 ? '✓ ' : ''}${share} % von deinem Ø-${unit}
           <span class="muted">(${fmtMin(refTotal)})</span></div>` : ''}</div>
       <div class="today-list">${rows || `<div class="muted">${week ? 'Diese Woche' : 'Heute'} ist noch nichts geloggt. Tippe oben auf einen Shortcut.</div>`}</div>
@@ -574,7 +584,7 @@ function viewStats() {
         ${isNow ? '' : '<button class="btn btn-sm" data-action="shift" data-dir="0">Heute</button>'}</div>` : `<b>${esc(range.label)}</b>`}</div>
       <div class="cols-2">
         <div class="row" style="gap:20px;align-items:center">
-          ${Ch.donut(list.map((a) => ({ label: a.name, value: agg.by[a.name], color: a.color })), { center: fmtH(agg.total), sub: `${fmtNum(agg.count)} Logs` })}
+          ${Ch.donut(list.map((a) => ({ label: a.name, value: agg.by[a.name], color: a.color })), { center: fmtH(agg.total), sub: `${fmtNum(agg.count)} Logs`, count: { to: agg.total, fmt: 'h' } })}
           <div class="legend" style="flex:1;min-width:180px">${list.map((a) => `<div class="legend-row"><span class="sw" style="background:${a.color}"></span>
             <span>${esc(a.name)}</span><span class="num">${fmtH(agg.by[a.name])}</span><span class="pct num">${Math.round((agg.by[a.name] / agg.total) * 100)} %</span></div>`).join('') || '<span class="muted">Keine Logs in diesem Zeitraum.</span>'}</div>
         </div>
@@ -1035,15 +1045,19 @@ function render() {
   document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   const main = $('#main');
   main.innerHTML = VIEWS[v]();
-  main.classList.toggle('view-enter', animateView && !calm());
+  const entering = animateView && !calm();
+  main.classList.toggle('view-enter', entering);
   animateView = false;
+  let cards = [];
   if (animateCard && !calm()) {
-    const cards = main.querySelectorAll(`[data-swap="${animateCard}"]`);
+    cards = [...main.querySelectorAll(`[data-swap="${animateCard}"]`)];
     cards.forEach((el) => el.classList.add('swap'));
     // drop the class afterwards, so a later redraw (e.g. resizing the chart) does not replay it
     setTimeout(() => cards.forEach((el) => el.classList.remove('swap')), 1200);
   }
   animateCard = '';
+  // wherever a ring closes anew, its number counts up with it
+  (entering ? [main] : cards).forEach((el) => el.querySelectorAll('.donut [data-count]').forEach(countRing));
   if (countUp && v === 'home') { countUp = false; if (!calm()) countTo($('.hero-num')); }
   justSealed = false; // the glow animation plays once
   justLogged = false;

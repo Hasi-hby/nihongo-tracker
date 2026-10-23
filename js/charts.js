@@ -2,7 +2,7 @@
 
 import {
   addDays, eachDay, esc, fmtDate, fmtH, fmtMin, fmtMinShort, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=2.3.0';
+} from './util.js?v=2.3.1';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 
@@ -76,16 +76,19 @@ export function heatmap(dm, year, { today, max = 480 } = {}) {
     <g class="hm-glow" filter="url(#hmGlow)">${glow.join('')}</g>${parts.join('')}</svg>`;
 }
 
-const DRAW_MS = 800; // how long the ring takes to close when it animates; it pulses for exactly this long (.donut in styles.css)
+export const DRAW_MS = 800; // how long the ring takes to close when it animates; it pulses for exactly this long (.donut in styles.css)
 /** Time (0..1) at which an ease-out sweep (fast start, soft close) around the ring has covered the share p. */
 const sweepAt = (p) => 1 - Math.sqrt(1 - Math.min(1, p));
+/** The inverse: share of the ring covered at time t (0..1), so a number can grow in step with the ring. */
+export const sweptAt = (t) => 1 - (1 - Math.min(1, t)) ** 2;
 
 /**
  * Donut with one ring segment per entry. segs: [{label, value, color}]
  * Each segment carries the delay and duration of its part of one continuous sweep, so the
  * ring closes clockwise from the top when the page animates it; the ring pulses while it closes.
+ * `count: {to, fmt}` marks the centre number, so the page can count it up while the ring closes.
  */
-export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } = {}) {
+export function donut(segs, { size = 190, stroke = 26, center = '', sub = '', count = null } = {}) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r, total = segs.reduce((s, x) => s + x.value, 0);
   let off = 0;
   const arcs = total ? segs.filter((s) => s.value > 0).map((s) => {
@@ -105,7 +108,7 @@ export function donut(segs, { size = 190, stroke = 26, center = '', sub = '' } =
     <feMerge><feMergeNode in="f"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
   return `<svg class="donut" style="--draw:${DRAW_MS}ms" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">${glow}
     <g class="${total ? 'ring' : ''}">${arcs.join('')}</g>
-    <g class="mid"><text class="donut-big" x="50%" y="48%" text-anchor="middle">${esc(center)}</text>
+    <g class="mid"><text class="donut-big" x="50%" y="48%" text-anchor="middle"${count ? ` data-count="${count.to}" data-fmt="${esc(count.fmt)}"` : ''}>${esc(center)}</text>
     <text class="ax" x="50%" y="61%" text-anchor="middle">${esc(sub)}</text></g></svg>`;
 }
 
