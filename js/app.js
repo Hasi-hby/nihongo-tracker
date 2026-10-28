@@ -1,17 +1,17 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.4.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.4.0';
-import { Sync } from './sync.js?v=2.4.0';
-import { parseInbox } from './inbox.js?v=2.4.0';
-import * as St from './stats.js?v=2.4.0';
-import * as Ch from './charts.js?v=2.4.0';
-import { buildExport } from './export.js?v=2.4.0';
-import { zip } from './zip.js?v=2.4.0';
-import { PC, PC_ACTIONS, PC_REPORT, refreshPC, runPC } from './pc.js?v=2.4.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.4.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.4.1';
+import { Sync } from './sync.js?v=2.4.1';
+import { parseInbox } from './inbox.js?v=2.4.1';
+import * as St from './stats.js?v=2.4.1';
+import * as Ch from './charts.js?v=2.4.1';
+import { buildExport } from './export.js?v=2.4.1';
+import { zip } from './zip.js?v=2.4.1';
+import { PC, PC_ACTIONS, PC_REPORT, refreshPC, runPC } from './pc.js?v=2.4.1';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.4.0';
+} from './util.js?v=2.4.1';
 
-const VERSION = '2.4.0';
+const VERSION = '2.4.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -552,11 +552,16 @@ function ago(iso) {
 /** Content in which the Anki words you struggle with come up a lot, plus buttons for a new run. */
 function ankiCard() {
   const head = (sub) => `<div class="card-head"><h2>${icon('tv')} Anki-Empfehlungen</h2><span class="sub">${sub}</span></div>`;
-  if (PC.state === 'offline') {
-    return `<div class="card anki-card" id="ankiCard">${head('PC-Helfer aus')}
-      <p class="muted small" style="margin:0">Der PC-Helfer läuft nicht. Starten: <b>Anki-Empfehlungen.bat</b> auf dem Desktop → Taste 7.
-        Fragt der Browser, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben.</p>
+  const hint = (sub, text) => `<div class="card anki-card" id="ankiCard">${head(sub)}
+      <p class="muted small" style="margin:0">${text}</p>
       <div class="row" style="margin-top:10px"><button class="btn btn-sm" data-action="pc-check">Nochmal prüfen</button></div></div>`;
+  if (PC.state === 'blocked') {
+    return hint('vom Browser blockiert', `Der Browser lässt Tsuzuku nicht an den PC-Helfer. Erlauben: Schloss-Symbol links neben der Adresse →
+      Website-Einstellungen → <b>Lokales Netzwerk</b> (je nach Chrome-Version „Apps auf diesem Gerät“) → Zulassen, dann neu laden.`);
+  }
+  if (PC.state === 'offline') {
+    return hint('PC-Helfer aus', `Der PC-Helfer läuft nicht. Starten: <b>Anki-Empfehlungen.bat</b> auf dem Desktop → Taste 7.
+      Fragt der Browser, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben.`);
   }
   if (PC.state !== 'online') return '';
   const st = PC.status, data = PC.picks, picks = data?.picks || [];

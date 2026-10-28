@@ -11,9 +11,18 @@ export const PC_ACTIONS = {
   rank: 'Neu sortieren',
   taste: 'Geschmack auffrischen',
 };
-/** state: unknown (not asked yet) | online | offline | none (not the PC) */
+/** state: unknown (not asked yet) | online | offline | blocked (by the browser) | none (not the PC) */
 export const PC = { state: 'unknown', status: null, picks: null, picksAt: null };
 export const pcAvailable = () => /Windows/.test(navigator.userAgent);
+
+/** Chrome asks once whether a website may reach apps on this device ("Local Network Access"). */
+async function accessDenied() {
+  try {
+    return (await navigator.permissions.query({ name: 'local-network-access' })).state === 'denied';
+  } catch {
+    return false; // a browser without that permission
+  }
+}
 
 async function getJSON(path, ms) {
   const ctl = new AbortController();
@@ -35,7 +44,7 @@ export async function refreshPC() {
     PC.status = await getJSON('/status', 2000);
     PC.state = 'online';
   } catch {
-    PC.state = 'offline';
+    PC.state = (await accessDenied()) ? 'blocked' : 'offline';
     PC.status = null;
     return null;
   }
