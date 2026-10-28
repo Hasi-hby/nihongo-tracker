@@ -1,16 +1,17 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.3.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.3.1';
-import { Sync } from './sync.js?v=2.3.1';
-import { parseInbox } from './inbox.js?v=2.3.1';
-import * as St from './stats.js?v=2.3.1';
-import * as Ch from './charts.js?v=2.3.1';
-import { buildExport } from './export.js?v=2.3.1';
-import { zip } from './zip.js?v=2.3.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.4.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.4.0';
+import { Sync } from './sync.js?v=2.4.0';
+import { parseInbox } from './inbox.js?v=2.4.0';
+import * as St from './stats.js?v=2.4.0';
+import * as Ch from './charts.js?v=2.4.0';
+import { buildExport } from './export.js?v=2.4.0';
+import { zip } from './zip.js?v=2.4.0';
+import { PC, PC_ACTIONS, PC_REPORT, refreshPC, runPC } from './pc.js?v=2.4.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.3.1';
+} from './util.js?v=2.4.0';
 
-const VERSION = '2.3.1';
+const VERSION = '2.4.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -303,6 +304,7 @@ const ICON_PATHS = {
   wave: 'M2 12h2l2-6 3 12 3-14 3 16 3-10 2 2h2v2h-3.2L18 13l-3 10-3-16-3 13-2.8-11L5 14H2z',
   plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
   edit: 'M4 17.25V20h2.75L17.8 8.94l-2.75-2.75zM20.7 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75z',
+  tv: 'M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-8v2h4v2H7v-2h4v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v9h16V6z',
 };
 const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
 
@@ -534,6 +536,71 @@ function heatCard(d) {
       <span class="spacer"></span><span>Tag antippen zeigt seine Logs</span></div></div>`;
 }
 
+// ---- Anki recommendations (only on the PC, through the helper in pc.js) ----------------------
+
+const ANKI_SOURCES = { youtube: 'YouTube', tver: 'TVer', netflix: 'Netflix' };
+const WHY_LABEL = { akut: 'akut: kürzlich falsch', wackelig: 'wackelig: oft vergessen', jung: 'jung: frisch gelernt' };
+
+function ago(iso) {
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (min < 2) return 'gerade eben';
+  if (min < 60) return `vor ${min} min`;
+  if (min < 24 * 60) return `vor ${Math.round(min / 60)} h`;
+  return fmtDate(iso.slice(0, 10), { weekday: true, year: false });
+}
+
+/** Content in which the Anki words you struggle with come up a lot, plus buttons for a new run. */
+function ankiCard() {
+  const head = (sub) => `<div class="card-head"><h2>${icon('tv')} Anki-Empfehlungen</h2><span class="sub">${sub}</span></div>`;
+  if (PC.state === 'offline') {
+    return `<div class="card anki-card" id="ankiCard">${head('PC-Helfer aus')}
+      <p class="muted small" style="margin:0">Der PC-Helfer läuft nicht. Starten: <b>Anki-Empfehlungen.bat</b> auf dem Desktop → Taste 7.
+        Fragt der Browser, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben.</p>
+      <div class="row" style="margin-top:10px"><button class="btn btn-sm" data-action="pc-check">Nochmal prüfen</button></div></div>`;
+  }
+  if (PC.state !== 'online') return '';
+  const st = PC.status, data = PC.picks, picks = data?.picks || [];
+  const running = st.running;
+  const sources = Object.keys(ANKI_SOURCES).filter((k) => picks.some((p) => p.source === k));
+  const src = sources.includes(S.ui.ankiSrc) ? S.ui.ankiSrc : sources[0];
+  const sub = data ? `aktualisiert ${ago(data.updated)}${data.targets ? `${SEP}${fmtNum(data.targets.akut)} akute Wörter` : ''}` : 'noch keine Empfehlungen';
+  const btn = (a, cls = '') => `<button class="btn btn-sm ${cls}" data-action="pc-run" data-run="${a}" ${running ? 'disabled' : ''}>${PC_ACTIONS[a]}</button>`;
+  const log = () => `<div class="anki-log">${st.lines.slice(-4).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+  const live = running
+    ? `<div class="anki-live"><div class="anki-live-head"><span class="spin"></span>${esc(PC_ACTIONS[running] || running)} läuft …</div>${log()}</div>`
+    : st.last && !st.last.ok
+      ? `<div class="anki-live fail"><div class="anki-live-head">${esc(PC_ACTIONS[st.last.action] || st.last.action)} ist fehlgeschlagen</div>${log()}</div>`
+      : '';
+  const chips = (p) => p.words.slice(0, 6).map(([w, why, n]) => `<span class="aw ${why}" title="${WHY_LABEL[why] || why}">${esc(w)}<b class="num">${n}</b></span>`).join('');
+  const until = (p) => (p.until ? `${SEP}bis ${fmtDate(new Date(p.until * 1000).toISOString().slice(0, 10), { year: false })}` : '');
+  const list = picks.filter((p) => p.source === src).slice(0, 5).map((p) => `<a class="anki-pick" href="${esc(p.url || PC_REPORT)}" target="_blank" rel="noopener">
+      <div class="anki-pick-top"><span class="anki-title">${esc(p.title)}</span><span class="num muted small">${p.minutes} min</span></div>
+      <div class="anki-pick-sub">${p.series && p.series !== p.title ? `${esc(p.series)}${SEP}` : ''}${p.acute} akut${SEP}${Math.round(p.coverage * 100)} % bekannt${until(p)}</div>
+      <div class="anki-words">${chips(p)}</div></a>`).join('');
+  return `<div class="card anki-card" id="ankiCard">${head(sub)}${live}
+    <div class="row">${btn('all-vpn', 'btn-primary')}${btn('all')}${btn('rank')}${btn('taste', 'btn-ghost')}
+      <span class="spacer"></span><a class="btn btn-sm btn-ghost" href="${PC_REPORT}" target="_blank" rel="noopener">Ganzer Bericht ↗</a></div>
+    ${sources.length ? `<div class="seg anki-src">${sources.map((k) => `<button class="${k === src ? 'active' : ''}" data-action="pc-src" data-src="${k}">${ANKI_SOURCES[k]}</button>`).join('')}</div>
+      <div class="anki-picks">${list}</div>` : ''}</div>`;
+}
+
+/** Swaps just the card (no whole-page redraw while a run reports progress every 2 s). */
+function updateAnkiCard() {
+  if (S.ui.view !== 'home') return;
+  const card = $('#ankiCard'), html = ankiCard();
+  if (card && html) card.outerHTML = html;
+  else if (!!card !== !!html) render(); // it appears or goes away
+}
+
+let pcTimer = 0;
+async function pcRefresh() {
+  clearTimeout(pcTimer);
+  const done = await refreshPC();
+  if (done) toast(done.ok ? `${PC_ACTIONS[done.action] || 'Anki-Empfehlungen'}: fertig` : `${PC_ACTIONS[done.action] || done.action} ist fehlgeschlagen`);
+  updateAnkiCard();
+  if (PC.status?.running) pcTimer = setTimeout(pcRefresh, 2000);
+}
+
 function viewHome() {
   const d = D();
   const recent = [...d.live].sort((a, b) => b.t - a.t).slice(0, 6);
@@ -545,6 +612,7 @@ function viewHome() {
     <div class="cols-2">${shortcutsCard()}${goalsPanel(d)}</div>
     ${todayCard(d)}
     ${timerCard()}
+    ${ankiCard()}
     ${heatCard(d)}
     <div class="card"><div class="card-head"><h2>${icon('history')} Letzte Aktivität</h2><button class="btn btn-sm btn-ghost" data-view="logs">Alle Logs →</button></div>
       <div class="list">${recent.length ? recent.map((l) => logItem(l)).join('') : '<p class="muted">Noch keine Logs.</p>'}</div></div>
@@ -1170,6 +1238,11 @@ async function onAction(el) {
       if (!S.device.token) return go('settings', 'sync');
       return sync.run();
     case 'sync-connect': return connectSync();
+    case 'pc-run':
+      try { await runPC(el.dataset.run); } catch (e) { toast(e.message); }
+      return pcRefresh();
+    case 'pc-src': S.ui.ankiSrc = el.dataset.src; return updateAnkiCard();
+    case 'pc-check': return pcRefresh();
     case 'sync-disconnect':
       S.device.token = '';
       await setKV('device', S.device);
@@ -1265,7 +1338,7 @@ function bindEvents() {
   });
   addEventListener('online', () => sync.run());
   addEventListener('offline', () => sync.setStatus('offline'));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); pcRefresh(); } });
   let rt;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawBars(); }, 150); });
 
@@ -1331,6 +1404,7 @@ async function boot() {
   bindEvents();
   render();
   window.__booted = true;
+  pcRefresh();
   try { sessionStorage.removeItem('nh-heal'); } catch { /* storage blocked */ }
   // colours only after the first sync, so a newer remote meta is merged before anything is rewritten
   sync.run().then(migrateColors);

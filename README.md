@@ -75,6 +75,12 @@ Schreibt die Datei in den Daten-Klon und pusht sie mit dem normalen Git-Login. A
 
 Antwortet GitHub mit `201 Created`, liegt der Eintrag in der Inbox.
 
+## Anki-Empfehlungen (nur am PC)
+
+Auf dem Windows-PC zeigt „Heute“ eine Karte **Anki-Empfehlungen**: YouTube-, TVer- und Netflix-Content, in dem die Anki-Wörter, mit denen du gerade kämpfst, oft vorkommen, plus Buttons für einen neuen Lauf (Alles aktualisieren, ohne TVer, Neu sortieren, Geschmack auffrischen) und ein Link zum ganzen Bericht.
+
+Eine Webseite darf keine Programme starten, deshalb macht das ein kleiner Helfer im jp-Ordner: `jp\technical\scripts\tsuzuku_helper.py` (Port 8796, nur `127.0.0.1`, nur vier feste Befehle, nimmt sie nur von dieser App an). Er startet mit `jp\technical\scripts\register_helper_task.ps1` bei jeder Anmeldung ohne Fenster, sonst über `Anki-Empfehlungen.bat` auf dem Desktop → Taste 7. Fragt der Browser beim ersten Mal, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben. Am iPhone/iPad und ohne Helfer bleibt die Karte weg (bzw. zeigt am PC, wie man ihn startet). Code: `js/pc.js`, Karte in `ankiCard()` in `js/app.js`.
+
 ## LingoTrack-Import
 
 ```bash
