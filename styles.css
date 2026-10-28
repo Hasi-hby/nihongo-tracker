@@ -593,8 +593,11 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
 /* ---- Anki recommendations (PC helper) ---- */
 .anki-src { margin: 14px 0 8px; }
 .anki-picks { display: grid; gap: 6px; }
-.anki-pick { display: block; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); color: inherit; text-decoration: none; transition: border-color 0.15s, background 0.15s; }
+.anki-pick { display: flex; gap: 6px; align-items: flex-start; padding: 10px 8px 10px 12px; border-radius: 12px; border: 1px solid var(--line); transition: border-color 0.15s, background 0.15s; }
 .anki-pick:hover { border-color: var(--line-hi); background: var(--mint-soft); }
+.anki-pick-link { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.anki-pick-acts { display: flex; flex-direction: column; align-items: stretch; gap: 2px; flex: none; }
+.anki-pick-acts .btn { min-height: 28px; padding: 0 10px; font-size: 0.78rem; }
 .anki-pick-top { display: flex; gap: 10px; justify-content: space-between; align-items: baseline; }
 .anki-title { font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .anki-pick-top .num { flex: none; }

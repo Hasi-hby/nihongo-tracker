@@ -57,6 +57,16 @@ export async function refreshPC() {
   return wasRunning && !PC.status.running ? PC.status.last : null;
 }
 
+/** Don't recommend this pick (scope 'item') or its whole series ('series') again; undo brings it back. */
+export async function markSeenPC(id, scope, undo = false) {
+  const q = new URLSearchParams({ id, scope, ...(undo ? { undo: '1' } : {}) });
+  const r = await fetch(`${BASE}/seen?${q}`, { method: 'POST', cache: 'no-store' });
+  if (!r.ok) throw new Error(`Helfer antwortet ${r.status}`);
+  PC.status = await r.json();
+  PC.picks = await getJSON('/picks', 5000);
+  PC.picksAt = PC.status.updated;
+}
+
 export async function runPC(action) {
   const r = await fetch(`${BASE}/run/${action}`, { method: 'POST', cache: 'no-store' });
   if (r.status === 409) throw new Error('Es läuft schon etwas');

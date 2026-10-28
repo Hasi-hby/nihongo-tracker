@@ -1,17 +1,17 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.4.1';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.4.1';
-import { Sync } from './sync.js?v=2.4.1';
-import { parseInbox } from './inbox.js?v=2.4.1';
-import * as St from './stats.js?v=2.4.1';
-import * as Ch from './charts.js?v=2.4.1';
-import { buildExport } from './export.js?v=2.4.1';
-import { zip } from './zip.js?v=2.4.1';
-import { PC, PC_ACTIONS, PC_REPORT, refreshPC, runPC } from './pc.js?v=2.4.1';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.5.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.5.0';
+import { Sync } from './sync.js?v=2.5.0';
+import { parseInbox } from './inbox.js?v=2.5.0';
+import * as St from './stats.js?v=2.5.0';
+import * as Ch from './charts.js?v=2.5.0';
+import { buildExport } from './export.js?v=2.5.0';
+import { zip } from './zip.js?v=2.5.0';
+import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.5.0';
 import {
   addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.4.1';
+} from './util.js?v=2.5.0';
 
-const VERSION = '2.4.1';
+const VERSION = '2.5.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -564,7 +564,7 @@ function ankiCard() {
       Fragt der Browser, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben.`);
   }
   if (PC.state !== 'online') return '';
-  const st = PC.status, data = PC.picks, picks = data?.picks || [];
+  const st = PC.status, data = PC.picks, picks = (data?.picks || []).filter((p) => !p.hidden && p.id);
   const running = st.running;
   const sources = Object.keys(ANKI_SOURCES).filter((k) => picks.some((p) => p.source === k));
   const src = sources.includes(S.ui.ankiSrc) ? S.ui.ankiSrc : sources[0];
@@ -578,10 +578,15 @@ function ankiCard() {
       : '';
   const chips = (p) => p.words.slice(0, 6).map(([w, why, n]) => `<span class="aw ${why}" title="${WHY_LABEL[why] || why}">${esc(w)}<b class="num">${n}</b></span>`).join('');
   const until = (p) => (p.until ? `${SEP}bis ${fmtDate(new Date(p.until * 1000).toISOString().slice(0, 10), { year: false })}` : '');
-  const list = picks.filter((p) => p.source === src).slice(0, 5).map((p) => `<a class="anki-pick" href="${esc(p.url || PC_REPORT)}" target="_blank" rel="noopener">
-      <div class="anki-pick-top"><span class="anki-title">${esc(p.title)}</span><span class="num muted small">${p.minutes} min</span></div>
-      <div class="anki-pick-sub">${p.series && p.series !== p.title ? `${esc(p.series)}${SEP}` : ''}${p.acute} akut${SEP}${Math.round(p.coverage * 100)} % bekannt${until(p)}</div>
-      <div class="anki-words">${chips(p)}</div></a>`).join('');
+  const seenBtn = (p, scope, label, title) => `<button class="btn btn-sm btn-ghost" data-action="pc-seen" data-id="${esc(p.id)}"
+      data-scope="${scope}" title="${title}">${label}</button>`;
+  const list = picks.filter((p) => p.source === src).slice(0, 5).map((p) => `<div class="anki-pick">
+      <a class="anki-pick-link" href="${esc(p.url || PC_REPORT)}" target="_blank" rel="noopener">
+        <div class="anki-pick-top"><span class="anki-title">${esc(p.title)}</span><span class="num muted small">${p.minutes} min</span></div>
+        <div class="anki-pick-sub">${p.series && p.series !== p.title ? `${esc(p.series)}${SEP}` : ''}${p.acute} akut${SEP}${Math.round(p.coverage * 100)} % bekannt${until(p)}</div>
+        <div class="anki-words">${chips(p)}</div></a>
+      <div class="anki-pick-acts">${seenBtn(p, 'item', '✓ gesehen', 'Nicht mehr vorschlagen')}
+        ${p.source !== 'youtube' ? seenBtn(p, 'series', 'Serie', 'Die ganze Serie nicht mehr vorschlagen') : ''}</div></div>`).join('');
   return `<div class="card anki-card" id="ankiCard">${head(sub)}${live}
     <div class="row">${btn('all-vpn', 'btn-primary')}${btn('all')}${btn('rank')}${btn('taste', 'btn-ghost')}
       <span class="spacer"></span><a class="btn btn-sm btn-ghost" href="${PC_REPORT}" target="_blank" rel="noopener">Ganzer Bericht ↗</a></div>
@@ -1248,6 +1253,13 @@ async function onAction(el) {
       return pcRefresh();
     case 'pc-src': S.ui.ankiSrc = el.dataset.src; return updateAnkiCard();
     case 'pc-check': return pcRefresh();
+    case 'pc-seen': {
+      const { scope } = el.dataset;
+      const seen = (undo) => markSeenPC(id, scope, undo).then(updateAnkiCard, (e) => toast(e.message));
+      await seen(false);
+      return toast(scope === 'series' ? 'Serie wird nicht mehr vorgeschlagen' : 'Wird nicht mehr vorgeschlagen',
+        { label: 'Rückgängig', fn: () => seen(true) });
+    }
     case 'sync-disconnect':
       S.device.token = '';
       await setKV('device', S.device);
