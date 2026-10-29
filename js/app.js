@@ -1,18 +1,19 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.6.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.6.0';
-import { Sync } from './sync.js?v=2.6.0';
-import { parseInbox } from './inbox.js?v=2.6.0';
-import * as St from './stats.js?v=2.6.0';
-import * as Ch from './charts.js?v=2.6.0';
-import { buildExport } from './export.js?v=2.6.0';
-import { zip } from './zip.js?v=2.6.0';
-import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.6.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.7.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.7.0';
+import { Sync } from './sync.js?v=2.7.0';
+import { parseInbox } from './inbox.js?v=2.7.0';
+import * as St from './stats.js?v=2.7.0';
+import * as Ch from './charts.js?v=2.7.0';
+import { buildExport } from './export.js?v=2.7.0';
+import { zip } from './zip.js?v=2.7.0';
+import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.7.0';
+import { choosePick, NOW_REASONS, slimPicks } from './now.js?v=2.7.0';
 import {
   addDays, dayOf, diffDays, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, MONTHS, MONTHS_SHORT, pad, parseDuration,
   startOfWeek, todayStr, uid,
-} from './util.js?v=2.6.0';
+} from './util.js?v=2.7.0';
 
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -28,9 +29,11 @@ const OLD_COLORS = {
 
 const S = {
   logs: new Map(),
+  picks: null, // picks.json from the data repo: the PC's Anki recommendations on every device
   meta: defaultMeta(),
   device: { token: '', owner: 'Hasi-hby', repo: 'nihongo-tracker-data', name: guessDevice() },
-  ui: { view: 'home', theme: 'dark', period: 'week', homeRange: 'day', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150 },
+  ui: { view: 'home', theme: 'dark', period: 'week', homeRange: 'day', anchor: null, heatYear: null, logQ: '', logA: '', logDay: '', logLimit: 150,
+    nowReason: '', nowSkip: [], nowShown: null }, // the "Jetzt" card, this session only
   ver: 0,
 };
 let cache = { ver: -1 };
@@ -210,18 +213,30 @@ function setTimer(next, desc) {
   return setMeta((m) => { m.timer = { ...next, u: Date.now() }; }, desc, 800);
 }
 
+const FIVE_MS = 5 * 60000;
+const fiveText = (elapsed) => (elapsed >= FIVE_MS ? '✓ 5 Minuten. Du bist drin.' : 'Erstmal nur 5 Minuten');
+
+/** A start from the "Jetzt" card carries its title and remembers its pick, so no device offers it again. */
+function startTimer(a, { md = '', five = false, pick = null } = {}) {
+  return setMeta((m) => {
+    const now = Date.now();
+    m.timer = { state: 'running', a, ...(md && { md }), ...(five && { five }), start: now, begin: now, acc: 0, u: now };
+    if (pick) m.settings = { ...m.settings, nowStarted: [...(m.settings?.nowStarted || []).filter((x) => x !== pick), pick].slice(-30), u: now };
+  }, `Timer ${a}`, 800);
+}
+
 async function timerAction(kind) {
   const tm = timer();
   if (kind === 'start') {
     const a = $('#timerAct')?.value || acts()[0]?.name || 'Immersion';
-    return setTimer({ state: 'running', a, start: Date.now(), begin: Date.now(), acc: 0 }, `Timer ${a}`);
+    return startTimer(a);
   }
   if (kind === 'pause') return setTimer({ ...tm, state: 'paused', acc: timerElapsed(tm), start: null }, 'Timer pausiert');
   if (kind === 'resume') return setTimer({ ...tm, state: 'running', start: Date.now() }, 'Timer weiter');
   if (kind === 'discard') return setTimer({ state: 'idle' }, 'Timer verworfen');
   if (kind === 'stop') {
     const ms = timerElapsed(tm), mins = Math.round(ms / 60000);
-    const entry = { a: tm.a, m: mins, d: dayOf(tm.begin || Date.now(), settings().dayEnd || 0), t: tm.begin, src: 'timer' };
+    const entry = { a: tm.a, m: mins, d: dayOf(tm.begin || Date.now(), settings().dayEnd || 0), t: tm.begin, md: tm.md, src: 'timer' };
     if (mins > TIMER_WARN_MIN) {
       // paused until confirmed: cancelling the dialog loses nothing
       if (tm.state === 'running') await setTimer({ ...tm, state: 'paused', acc: ms, start: null }, 'Timer pausiert');
@@ -310,6 +325,7 @@ const ICON_PATHS = {
   clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3h2v4.6l3.7 2.2-1 1.7L11 12.7z',
   flag: 'M5 2h2v20H5zm3 1h11l-2.5 4.5L19 12H8z',
   stack: 'M4 4h4v6H4zm0 7h4v9H4zm6-7h4v10h-4zm0 11h4v5h-4zm6-11h4v3h-4zm0 4h4v12h-4z',
+  play: 'M8 5v14l11-7z',
 };
 const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
 
@@ -488,7 +504,9 @@ function timerCard() {
   }
   const running = tm.state === 'running', elapsed = timerElapsed(tm);
   return `<div class="card timer-live"><div class="card-head"><h2>${icon('timer')} Timer</h2><span class="sub">${esc(tm.a)} · seit ${clock(tm.begin || Date.now())}</span></div>
+    ${tm.md ? `<div class="timer-md">${esc(tm.md)}</div>` : ''}
     <div id="timerClock" class="timer-clock ${running ? 'running' : ''}">${fmtClock(elapsed)}</div>
+    ${tm.five ? `<div id="timerFive" class="timer-five ${elapsed >= FIVE_MS ? 'done' : ''}">${fiveText(elapsed)}</div>` : ''}
     ${running && elapsed > TIMER_WARN_MIN * 60000 ? `<div class="timer-warn">Läuft seit über ${fmtMin(Math.floor(elapsed / 3600000) * 60)} – noch dran? Beim Stoppen kannst du die Dauer korrigieren.</div>` : ''}
     <div class="row" style="margin-top:12px">
       ${running ? '<button class="btn" data-action="timer" data-kind="pause">Pause</button>' : '<button class="btn" data-action="timer" data-kind="resume">Weiter</button>'}
@@ -646,10 +664,45 @@ function updateAnkiCard() {
 let pcTimer = 0;
 async function pcRefresh() {
   clearTimeout(pcTimer);
+  const seenAt = PC.picksAt;
   const done = await refreshPC();
+  if (PC.picksAt !== seenAt) { // a new run: upload it for the other devices, and the "Jetzt" card may change
+    sync.schedule(1500);
+    if (S.ui.view === 'home') render();
+  }
   if (done) toast(done.ok ? `${PC_ACTIONS[done.action] || 'Anki-Empfehlungen'}: fertig` : `${PC_ACTIONS[done.action] || done.action} ist fehlgeschlagen`);
   updateAnkiCard();
   if (PC.status?.running) pcTimer = setTimeout(pcRefresh, 2000);
+}
+
+// ---- "Jetzt 5 Minuten?" ---------------------------------------------------------------------
+
+const immersionAct = () => acts().find((a) => /^immersion$/i.test(a.name))?.name || acts()[0]?.name || 'Immersion';
+/** The PC's live recommendations, elsewhere the copy from the data repo. */
+const nowPicks = () => (PC.state === 'online' && PC.picks ? slimPicks(PC.picks).picks : S.picks?.picks || []);
+
+/** The pick on show: it stays until an excuse is tapped; turned-down ones come back once all were. */
+function nowPick() {
+  const picks = nowPicks(), started = settings().nowStarted || [];
+  const pick = (skip) => choosePick(picks, { reason: S.ui.nowReason, skip: [...started, ...skip], shown: S.ui.nowShown });
+  const p = pick(S.ui.nowSkip);
+  if (p || !S.ui.nowSkip.length) return p;
+  S.ui.nowSkip = [];
+  return pick([]);
+}
+
+/** One prepared thing and a start of just five minutes; each excuse swaps it for a smaller fit. */
+function nowCard() {
+  if (['running', 'paused'].includes(timer().state)) return '';
+  const p = nowPick();
+  const head = `<div class="card-head"><h2>${icon('play')} Jetzt 5 Minuten?</h2></div>`;
+  if (!p) return `<div class="card now-card">${head}<button class="btn btn-primary now-go" data-action="now-start">${icon('play', 16)} 5 Minuten starten</button></div>`;
+  const sub = [p.series && p.series !== p.title ? esc(p.series) : '', ANKI_SOURCES[p.source] || esc(p.source), p.minutes ? `${Math.round(p.minutes)} min` : ''];
+  return `<div class="card now-card" data-swap="now">${head}
+    <div class="now-pick"><span class="now-title">${esc(p.title)}</span><span class="now-meta">${sub.filter(Boolean).join(SEP)}</span></div>
+    <a class="btn btn-primary now-go" href="${esc(p.url)}" target="_blank" rel="noopener" data-action="now-start" data-id="${esc(p.id)}">${icon('play', 16)} 5 Minuten starten</a>
+    <div class="now-why"><span>Gerade nicht, weil …</span>${NOW_REASONS.map((r) => `<button class="${S.ui.nowReason === r.id ? 'active' : ''}"
+      data-action="now-reason" data-r="${r.id}">${r.label}</button>`).join('')}</div></div>`;
 }
 
 function viewHome() {
@@ -657,6 +710,7 @@ function viewHome() {
   const recent = [...d.live].sort((a, b) => b.t - a.t).slice(0, 6);
   return `<div class="grid">
     ${headCard(d)}
+    ${nowCard()}
     ${weekRecapCard(d)}
     ${!S.device.token && !d.live.length ? `<div class="card"><div class="card-head"><h2>Willkommen</h2></div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
@@ -984,7 +1038,7 @@ function openLogModal(id = null, preset = {}) {
   const l = id ? S.logs.get(id) : null;
   const quick = !l && !!preset.quick;
   const dflt = l || {
-    a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: preset.d || today(), t: preset.t || Date.now(),
+    a: preset.a || shortcuts()[0]?.a || acts()[0]?.name, m: preset.m || '', d: preset.d || today(), t: preset.t || Date.now(), md: preset.md || '',
   };
   const names = acts().map((a) => a.name);
   if (dflt.a && !names.includes(dflt.a)) names.push(dflt.a);
@@ -1008,7 +1062,7 @@ function openLogModal(id = null, preset = {}) {
         <label class="field"><span>Tag</span><input type="date" name="d" value="${dflt.d}" max="${today()}" required></label>
         <label class="field"><span>Uhrzeit</span><input type="time" name="time" value="${clock(dflt.t)}"></label>
         <label class="field full"><span>Notiz</span><input type="text" name="n" value="${esc(l?.n || '')}" placeholder="optional"></label>
-        <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(l?.md || '')}" placeholder="optional, z. B. Frieren S1"></label>
+        <label class="field full"><span>Medium</span><input type="text" name="md" list="mediaList" value="${esc(dflt.md || '')}" placeholder="optional, z. B. Frieren S1"></label>
         <datalist id="mediaList">${media.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       </div></details>
     <div class="modal-foot">${l ? '<button type="button" class="btn btn-danger" data-del>Löschen</button>' : ''}<span class="spacer"></span>
@@ -1334,6 +1388,19 @@ async function onAction(el) {
     }
     case 'chorus-log': return chorusLog();
     case 'recap-hide': return setSettings({ recapSeen: el.dataset.start }, 'Rückblick ausgeblendet');
+    case 'now-reason': {
+      const cur = nowPick();
+      if (cur) { S.ui.nowSkip.push(cur.id); S.ui.nowShown = cur; }
+      S.ui.nowReason = el.dataset.r;
+      animateCard = 'now';
+      return render();
+    }
+    case 'now-start': {
+      // a link opens the pick itself (no preventDefault anywhere), the timer starts alongside
+      const p = id ? nowPicks().find((x) => x.id === id) : null;
+      Object.assign(S.ui, { nowReason: '', nowSkip: [], nowShown: null });
+      return startTimer(immersionAct(), { md: p?.title, five: true, pick: p?.id });
+    }
     case 'quest-new': return openQuestModal();
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
@@ -1389,6 +1456,7 @@ async function onAction(el) {
       const { scope } = el.dataset;
       const seen = (undo) => markSeenPC(id, scope, undo).then(updateAnkiCard, (e) => toast(e.message));
       await seen(false);
+      sync.schedule(1500); // the phone's copy of the picks loses it too
       return toast(scope === 'series' ? 'Serie wird nicht mehr vorgeschlagen' : 'Wird nicht mehr vorgeschlagen',
         { label: 'Rückgängig', fn: () => seen(true) });
     }
@@ -1494,6 +1562,11 @@ function bindEvents() {
   setInterval(() => {
     const el = $('#timerClock');
     if (el && timer().state === 'running') el.textContent = fmtClock(timerElapsed());
+    const five = $('#timerFive');
+    if (five && !five.classList.contains('done') && timerElapsed() >= FIVE_MS) {
+      five.classList.add('done');
+      five.textContent = fiveText(FIVE_MS);
+    }
     const cd = $('#cqCountdown');
     if (cd) cd.textContent = fmtClock(msUntilDayEnd());
   }, 1000);
@@ -1509,11 +1582,12 @@ function bindEvents() {
 
 async function boot() {
   await openStore();
-  const [logs, meta, device, ui] = await Promise.all([allLogs(), getKV('meta'), getKV('device'), getKV('ui')]);
+  const [logs, meta, device, ui, picks] = await Promise.all([allLogs(), getKV('meta'), getKV('device'), getKV('ui'), getKV('picks')]);
   logs.forEach((l) => S.logs.set(l.id, l));
   if (meta) S.meta = meta;
   if (device) S.device = { ...S.device, ...device };
   if (ui) Object.assign(S.ui, ui);
+  if (picks) S.picks = picks;
   const hv = location.hash.slice(1);
   if (VIEWS[hv]) S.ui.view = hv;
   if (!VIEWS[S.ui.view] || (hv && !VIEWS[hv])) { // e.g. the old hunter page
@@ -1534,6 +1608,8 @@ async function boot() {
     },
     getMeta: () => S.meta,
     applyMeta: async (m) => { S.meta = m; await setKV('meta', m); S.ver++; render(); },
+    localPicks: () => (PC.state === 'online' && PC.picks ? slimPicks(PC.picks) : null),
+    applyPicks: async (data) => { S.picks = data; await setKV('picks', data); if (S.ui.view === 'home') render(); },
     onStatus: () => renderSyncPill(),
     fromInbox: (name, data) => parseInbox(name, data, {
       dayEnd: settings().dayEnd || 0, actNames: (S.meta.activities || []).map((a) => a.name),

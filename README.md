@@ -40,6 +40,7 @@ Der Token bleibt nur auf dem Gerät. Ein Token pro Gerät, damit man ein verlore
 - `logs/<jahr>.json`: Logs, ein Eintrag pro Zeile
 
 - `inbox/<name>.json`: Logs von außerhalb der App (siehe unten), werden beim Sync übernommen und gelöscht
+- `picks.json`: die Anki-Empfehlungen des PCs für die Karte „Jetzt 5 Minuten?“, schreibt nur der PC
 
 Jeder Eintrag hat `u` (letzte Änderung). Beim Zusammenführen gewinnt der neuere, Löschungen sind Tombstones (`x: 1`). Pull fragt zuerst nur per ETag nach Änderungen (304 = nichts zu tun), Push nutzt den letzten bekannten `sha`. Bei einem Konflikt wird neu gezogen, zusammengeführt und erneut gepusht.
 
@@ -80,6 +81,8 @@ Antwortet GitHub mit `201 Created`, liegt der Eintrag in der Inbox.
 Auf dem Windows-PC zeigt „Heute“ eine Karte **Anki-Empfehlungen**: YouTube-, TVer- und Netflix-Content, in dem die Anki-Wörter, mit denen du gerade kämpfst, oft vorkommen, plus Buttons für einen neuen Lauf (Alles aktualisieren, ohne TVer, Neu sortieren, Geschmack auffrischen) und ein Link zum ganzen Bericht. „✓ gesehen“ (bzw. „Serie“ bei TVer/Netflix) blendet einen Vorschlag dauerhaft aus; was im YouTube-/TVer-/Netflix-Verlauf steht, schlägt das Skript ohnehin nicht mehr vor.
 
 Eine Webseite darf keine Programme starten, deshalb macht das ein kleiner Helfer im jp-Ordner: `jp\technical\scripts\tsuzuku_helper.py` (Port 8796, nur `127.0.0.1`, nur vier feste Befehle, nimmt sie nur von dieser App an). Er startet mit `jp\technical\scripts\register_helper_task.ps1` bei jeder Anmeldung ohne Fenster, sonst über `Anki-Empfehlungen.bat` auf dem Desktop → Taste 7. Fragt der Browser beim ersten Mal, ob Tsuzuku auf Apps auf diesem Gerät zugreifen darf: erlauben. Am iPhone/iPad und ohne Helfer bleibt die Karte weg (bzw. zeigt am PC, wie man ihn startet). Code: `js/pc.js`, Karte in `ankiCard()` in `js/app.js`.
+
+**Jetzt 5 Minuten?** Oben auf „Heute“ steht genau ein Vorschlag aus diesen Empfehlungen. „5 Minuten starten“ öffnet ihn und startet den Timer mit dem Titel als Medium. Darunter tauschen „Keine Zeit gerade“ (etwas bis 25 min), „Erst noch kurz was anderes“ (das leichteste YouTube-Video) und „Weiß nicht, was“ (eine andere Serie) den Vorschlag. Damit das auf allen Geräten geht, lädt die PC-App die Empfehlungen als `picks.json` ins Daten-Repo (ohne lokale Dateien und abgelaufene TVer-Folgen). Das iPhone bekommt einen neuen Lauf also erst, wenn die App am PC danach einmal offen war. Gestartete Vorschläge merkt sich `settings.nowStarted`, sie kommen auf keinem Gerät wieder. Code: `js/now.js`, Karte in `nowCard()`.
 
 ## LingoTrack-Import
 

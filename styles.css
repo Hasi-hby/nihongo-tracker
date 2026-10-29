@@ -366,6 +366,25 @@ input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid v
 .qhist i.ok { background: var(--mint); border-color: var(--mint); box-shadow: 0 0 6px var(--glow); }
 .qhist i.near { background: color-mix(in srgb, var(--mint) 35%, transparent); border-color: color-mix(in srgb, var(--mint) 45%, transparent); }
 
+/* ---- Jetzt 5 Minuten: one prepared thing, a swap per excuse ---- */
+.now-card { display: grid; gap: 12px; }
+.now-card .card-head { margin-bottom: 0; }
+.now-pick { display: grid; gap: 3px; min-width: 0; }
+.now-title { font-weight: 500; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.now-meta { font-size: 0.78rem; color: var(--muted); }
+.now-go { justify-self: start; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.now-why { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+.now-why > span { margin-right: 2px; }
+.now-why button {
+  font: inherit; color: var(--text-2); padding: 4px 11px; border-radius: 99px; border: 1px solid var(--line-hi); background: transparent; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.now-why button:hover { border-color: color-mix(in srgb, var(--mint) 45%, var(--line-hi)); color: var(--text); }
+.now-why button.active { border-color: var(--mint); color: var(--mint-hi); background: var(--mint-soft); }
+.timer-md { margin: -6px 0 8px; font-size: 0.84rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer-five { margin-top: 6px; font-size: 0.82rem; color: var(--muted); }
+.timer-five.done { color: var(--mint); }
+
 /* ---- Last week (first days of a new week) ---- */
 .recap .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .recap-lines { display: grid; gap: 6px; margin-top: 12px; }
@@ -626,6 +645,7 @@ code { font: 0.84em ui-monospace, Consolas, monospace; background: var(--panel-2
 .swap .bars .col { animation: grow 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(var(--i, 0) * 16ms); transform-box: fill-box; transform-origin: bottom; }
 .swap .bars :is(.cum, .cum-area, .trend) { animation: fadeIn 0.6s ease-out 0.35s backwards; }
 .swap .hgrid { animation: fadeIn 0.5s ease-out 0.1s backwards; }
+.swap :is(.now-pick, .now-go) { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .swap .tile { animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .swap .tile:nth-child(2) { animation-delay: 0.04s; }
 .swap .tile:nth-child(3) { animation-delay: 0.08s; }

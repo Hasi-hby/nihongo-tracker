@@ -225,3 +225,34 @@ test('a push conflict pulls, merges both sides and retries', async () => {
   assert.deepEqual(yearIds(fake), ['la', 'lb']);
   assert.deepEqual([...a.logs.keys()].sort(), ['la', 'lb']);
 });
+
+test('the PC uploads newer Anki picks as picks.json, other devices take them over once', async () => {
+  const fake = new FakeGitHub();
+  const pc = device('PC'), phone = device('P');
+  let local = { updated: '2026-10-29T05:09:57', picks: [{ id: 'yt:1' }] };
+  pc.sync.host.localPicks = () => local;
+  const got = [];
+  phone.sync.host.applyPicks = async (d) => got.push(d);
+
+  await pc.sync.run();
+  assert.equal(pc.sync.status.kind, 'ok', pc.sync.status.detail);
+  assert.deepEqual(fake.json('picks.json'), local);
+  fake.calls = [];
+  await pc.sync.run();
+  assert.ok(!fake.calls.some((c) => c.includes('PUT contents/picks.json')), 'unchanged picks are not uploaded again');
+
+  await phone.sync.run();
+  assert.deepEqual(got, [local]);
+  local = { updated: '2026-10-30T05:10:00', picks: [{ id: 'yt:2' }] };
+  await pc.sync.run();
+  await phone.sync.run();
+  await phone.sync.run();
+  assert.deepEqual(got.map((d) => d.updated), ['2026-10-29T05:09:57', '2026-10-30T05:10:00'], 'each new file is applied once');
+  // a pick marked as seen on the PC: same run, one pick fewer
+  local = { updated: '2026-10-30T05:10:00', picks: [] };
+  await pc.sync.run();
+  await phone.sync.run();
+  assert.deepEqual(got.at(-1).picks, []);
+  assert.equal(got.length, 3);
+  assert.ok(!fake.calls.some((c) => c.startsWith('P PUT contents/picks.json')), 'only the PC writes picks.json');
+});

@@ -1,8 +1,8 @@
 // Export files for switching trackers: plain CSV, an Excel-friendly CSV, the LingoTrack
 // activity_logs.csv format, daily totals, and the full re-importable backup.
 
-import { canonLog } from './merge.js?v=2.6.0';
-import { pad } from './util.js?v=2.6.0';
+import { canonLog } from './merge.js?v=2.7.0';
+import { pad } from './util.js?v=2.7.0';
 
 const BOM = '﻿';
 const csvCell = (v, sep) => {

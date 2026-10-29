@@ -2,14 +2,15 @@
 //   meta.json          activities, shortcuts, quests, settings, timer
 //   logs/<year>.json   all logs of that year (tombstones included)
 //   inbox/<name>.json  logs written from outside the app (see inbox.js)
+//   picks.json         the PC's Anki recommendations for the "Jetzt 5 Minuten?" card (only the PC writes it)
 // Pull: one conditional request on the repo root (304 when nothing changed), then only
 // the blobs whose sha moved. Push: PUT with the last known sha; a conflict re-pulls,
 // merges and retries. Local changes are tracked as dirty counters so edits made while
 // a request is in flight are never lost. Inbox files are merged into the logs on pull and
 // deleted only after the year files holding them were pushed.
 
-import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=2.6.0';
-import { getKV, setKV } from './store.js?v=2.6.0';
+import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=2.7.0';
+import { getKV, setKV } from './store.js?v=2.7.0';
 
 const API = 'https://api.github.com';
 
@@ -24,15 +25,20 @@ function b64(text) {
   return btoa(bin);
 }
 
+/** A run's picks: a newer run, or the same run with a pick marked as seen, changes it. */
+const picksKey = (p) => `${p.updated || ''}|${(p.picks || []).map((x) => x.id).join(',')}`;
+
 const freshState = () => ({
   repoKey: '', etag: null, metaSha: null, logsTree: null, files: {}, dirty: { meta: 0, years: {} }, lastOk: null,
   inboxTree: null, inbox: {}, inboxBad: {}, // inbox: merged, waiting for delete; inboxBad: unreadable, left in place
+  picksSha: null, picksUpdated: '', picksKey: '', // picks.json: its blob, the run it holds and which picks
 });
 
 export class Sync {
   /**
    * host: { logsOfYear(y), localYears(), applyLogs(logs), getMeta(), applyMeta(meta), onStatus(s),
-   *         fromInbox(name, data) -> { logs, errors }, onInbox(logs, bad) }
+   *         fromInbox(name, data) -> { logs, errors }, onInbox(logs, bad),
+   *         localPicks() -> { updated, picks } | null (the PC), applyPicks(data) }
    */
   constructor(host) {
     this.host = host;
@@ -186,8 +192,22 @@ export class Sync {
     }
     // after the year files, so a log that was already moved and edited elsewhere stays edited
     if (await this.pullInbox(items.find((i) => i.path === 'inbox' && i.type === 'dir'))) changed = true;
+    await this.pullPicks(items.find((i) => i.path === 'picks.json'));
     st.etag = etag;
     return changed;
+  }
+
+  async pullPicks(item) {
+    const st = this.state;
+    if (!item) { st.picksSha = null; return; }
+    if (item.sha === st.picksSha) return;
+    const data = await this.blob(item.sha);
+    st.picksSha = item.sha;
+    if ((data.updated || '') >= (st.picksUpdated || '') && picksKey(data) !== st.picksKey) {
+      st.picksUpdated = data.updated || '';
+      st.picksKey = picksKey(data);
+      await this.host.applyPicks?.(data);
+    }
   }
 
   async pullInbox(dir) {
@@ -268,6 +288,13 @@ export class Sync {
       const path = `logs/${y}.json`;
       st.files[path] = await this.put(path, serializeLogs(this.host.logsOfYear(y)), st.files[path]);
       if (st.dirty.years[y] === v) delete st.dirty.years[y];
+    }
+    const picks = this.host.localPicks?.();
+    if (picks?.updated && picks.updated >= (st.picksUpdated || '') && picksKey(picks) !== st.picksKey) {
+      this.desc.push('Vorschläge');
+      st.picksSha = await this.put('picks.json', JSON.stringify(picks), st.picksSha);
+      st.picksUpdated = picks.updated;
+      st.picksKey = picksKey(picks);
     }
     this.desc = [];
     st.etag = null; // our own commits changed the root listing
