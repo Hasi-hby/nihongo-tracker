@@ -1,7 +1,7 @@
 import {
-  addDays, addMonths, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
+  addDays, addMonths, diffDays, eachDay, endOfMonth, fmtDate, MONTHS, MONTHS_SHORT, startOfMonth,
   startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=2.5.0';
+} from './util.js?v=2.6.0';
 
 /** date -> { total, count, by: { activity: minutes } } for live (non-deleted) logs */
 export function dayMap(logs) {
@@ -227,6 +227,72 @@ export function nextMilestone(totalMin, perDay, today) {
   return { hours, leftMin, date: perDay > 0 ? addDays(today, Math.ceil(leftMin / perDay)) : null };
 }
 
+/** The milestone after `h` hours: 100, 250, 500, 750, 1000, then every 500. */
+const stepAfter = (h) => [100, 250, 500, 750, 1000].find((s) => s > h) ?? (Math.floor(h / 500) + 1) * 500;
+
+/**
+ * The day each milestone was reached, with the days and the minutes a day it took since the one
+ * before (the first since the first logged day), and the next one at `perDay` minutes a day.
+ */
+export function milestoneTimeline(dm, today, perDay) {
+  const reached = [];
+  let cum = 0, first = null, target = stepAfter(0);
+  for (const d of [...dm.keys()].filter((x) => x <= today).sort()) {
+    first ??= d;
+    cum += dm.get(d).total;
+    while (cum >= target * 60) {
+      const prev = reached.at(-1);
+      const days = prev ? diffDays(prev.d, d) : diffDays(first, d) + 1;
+      reached.push({ hours: target, d, days, perDay: ((target - (prev?.hours || 0)) * 60) / Math.max(1, days) });
+      target = stepAfter(target);
+    }
+  }
+  const leftMin = target * 60 - cum;
+  return { reached, total: cum, next: { hours: target, leftMin, date: perDay > 0 ? addDays(today, Math.ceil(leftMin / perDay)) : null } };
+}
+
+/** Minutes a day over the `n` days up to and including each day from `start` to `end`. */
+export function rollingAvg(dm, start, end, n = 30) {
+  const out = [];
+  if (start > end) return out;
+  let sum = sumRange(dm, addDays(start, -n), addDays(start, -1));
+  for (const d of eachDay(start, end)) {
+    sum += (dm.get(d)?.total || 0) - (dm.get(addDays(d, -n))?.total || 0);
+    out.push({ d, avg: sum / n });
+  }
+  return out;
+}
+
+/**
+ * Minutes per weekday (rows Monday first) and clock hour for the logs from `start` to `end`.
+ * A log covers the `m` minutes before `t`, because shortcuts, the log form and imported logs carry
+ * the moment they were logged; a timer log covers the minutes after `t`, the timer's start.
+ */
+export function hourGrid(logs, start, end) {
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  const byHour = new Array(24).fill(0), byWd = new Array(7).fill(0);
+  let total = 0;
+  for (const l of logs) {
+    if (l.x || !(l.m > 0) || !l.t || l.d < start || l.d > end) continue;
+    let a = l.src === 'timer' ? l.t : l.t - l.m * 60000;
+    const b = a + l.m * 60000;
+    while (a < b) {
+      const at = new Date(a), next = new Date(a);
+      next.setMinutes(60, 0, 0); // the next full hour
+      const upto = Math.min(b, next.getTime()), min = (upto - a) / 60000;
+      const wd = (at.getDay() + 6) % 7, h = at.getHours();
+      grid[wd][h] += min;
+      byHour[h] += min;
+      byWd[wd] += min;
+      total += min;
+      a = upto;
+    }
+  }
+  let peak = null;
+  grid.forEach((row, wd) => row.forEach((min, h) => { if (min > 0 && (!peak || min > peak.min)) peak = { wd, h, min }; }));
+  return { grid, byHour, byWd, total, peak };
+}
+
 // ---- Quests (goals) -------------------------------------------------------
 
 const questAmount = (q, e) => (e ? (q.a ? e.by[q.a] || 0 : e.total) : 0);
@@ -264,6 +330,25 @@ export function questPace(q, dm, today, ws = 1) {
     done, expected, ahead: done - expected, left, daysLeft, perDay: left / daysLeft, end,
     expectedPct: Math.min(1, expected / q.m), complete: done >= q.m,
   };
+}
+
+/**
+ * A week or month goal over the last `n` finished weeks (months), oldest first. `pct` is not capped;
+ * `near` marks a miss by less than a fifth. Empty for daily goals.
+ */
+export function goalHistory(q, dm, today, ws = 1, n = q.scope === 'month' ? 6 : 12) {
+  if (q.scope !== 'week' && q.scope !== 'month') return [];
+  const week = q.scope === 'week';
+  const cur = week ? startOfWeek(today, ws) : startOfMonth(today);
+  const out = [];
+  for (let i = n; i >= 1; i--) {
+    const start = week ? addDays(cur, -7 * i) : addMonths(cur, -i);
+    const end = week ? addDays(start, 6) : endOfMonth(start);
+    const { done, complete } = questProgress(q, dm, end, ws);
+    const pct = done / q.m;
+    out.push({ start, end, done, pct, complete, near: !complete && pct >= 0.8 });
+  }
+  return out;
 }
 
 /** Daily quest history: a day is cleared when every daily quest active that day was met. */

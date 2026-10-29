@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  aggregate, avgPerDay, chorusInfo, dayMap, nextMilestone, periodRange, questHistory, questPace, questProgress, recap, streakInfo,
-  totals,
+  aggregate, avgPerDay, chorusInfo, dayMap, goalHistory, hourGrid, milestoneTimeline, nextMilestone, periodRange, questHistory,
+  questPace, questProgress, recap, rollingAvg, streakInfo, totals,
 } from '../js/stats.js';
 import { addDays, dayOf, fmtMinShort, parseDuration } from '../js/util.js';
 
@@ -40,6 +40,67 @@ test('next milestone is the next full hundred hours, with a date at the current 
   assert.equal(m.date, '2026-11-12'); // 88 h at 4 h a day = 22 days
   assert.equal(nextMilestone(2700 * 60, 0, '2026-10-21').hours, 2800);
   assert.equal(nextMilestone(100, 0, '2026-10-21').date, null);
+});
+
+test('milestone timeline: the day each step was reached and the pace of each stretch', () => {
+  const dm = dayMap(logsOn(range('2026-01-01', 30), 600));
+  const t = milestoneTimeline(dm, '2026-01-30', 600);
+  assert.deepEqual(t.reached.map((r) => [r.hours, r.d, r.days, r.perDay]), [[100, '2026-01-10', 10, 600], [250, '2026-01-25', 15, 600]]);
+  assert.equal(t.total, 300 * 60);
+  assert.deepEqual(t.next, { hours: 500, leftMin: 200 * 60, date: '2026-02-19' });
+  // two steps on one day, and every 500 h after 1000 h
+  const big = milestoneTimeline(dayMap(logsOn(['2026-01-01'], 1200 * 60)), '2026-01-01', 0);
+  assert.deepEqual(big.reached.map((r) => [r.hours, r.days]), [[100, 1], [250, 0], [500, 0], [750, 0], [1000, 0]]);
+  assert.deepEqual(big.next, { hours: 1500, leftMin: 300 * 60, date: null });
+  assert.equal(milestoneTimeline(new Map(), '2026-01-01', 0).next.hours, 100);
+});
+
+test('rolling average: a window of n days up to and including each day', () => {
+  const dm = dayMap(logsOn(range('2026-03-01', 10), 300));
+  const r = rollingAvg(dm, '2026-03-04', '2026-03-12', 5);
+  assert.equal(r.length, 9);
+  assert.deepEqual(r[0], { d: '2026-03-04', avg: 240 });
+  assert.equal(r[1].avg, 300);
+  assert.deepEqual(r.at(-1), { d: '2026-03-12', avg: 180 });
+  assert.deepEqual(rollingAvg(dm, '2026-03-05', '2026-03-04'), []);
+});
+
+test('hour grid: a log fills the hours before it, a timer log the hours after its start', () => {
+  const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime();
+  const logs = [
+    { id: 'a', d: '2026-10-26', t: at(2026, 10, 26, 20, 30), a: 'Immersion', m: 90, src: 'shortcut' }, // Monday 19:00–20:30
+    { id: 'b', d: '2026-10-27', t: at(2026, 10, 27, 23, 30), a: 'Immersion', m: 60, src: 'timer' }, // Tuesday 23:30 – Wednesday 0:30
+    { id: 'c', d: '2026-11-05', t: at(2026, 11, 5, 9, 0), a: 'Immersion', m: 30, src: 'shortcut' }, // outside the range
+    { id: 'd', d: '2026-10-26', t: at(2026, 10, 26, 8, 0), a: 'Immersion', m: 30, x: 1 }, // deleted
+  ];
+  const g = hourGrid(logs, '2026-10-26', '2026-11-01');
+  assert.equal(g.grid[0][19], 60);
+  assert.equal(g.grid[0][20], 30);
+  assert.equal(g.grid[1][23], 30);
+  assert.equal(g.grid[2][0], 30);
+  assert.equal(g.total, 150);
+  assert.equal(g.byHour[19], 60);
+  assert.deepEqual(g.byWd, [90, 30, 30, 0, 0, 0, 0]);
+  assert.deepEqual(g.peak, { wd: 0, h: 19, min: 60 });
+  assert.equal(hourGrid([], '2026-10-26', '2026-11-01').peak, null);
+});
+
+test('goal history: the last finished weeks, with near misses above 80 %', () => {
+  const dm = dayMap([
+    ...logsOn(range('2026-10-05', 5), 120), ...logsOn(range('2026-10-12', 5), 100), ...logsOn(range('2026-10-19', 3), 100),
+    ...logsOn(range('2026-10-26', 3), 400), ...logsOn(range('2026-10-12', 2), 999, 'Anki'),
+  ]);
+  const h = goalHistory({ scope: 'week', a: 'Immersion', m: 600 }, dm, '2026-10-29', 1, 3);
+  assert.deepEqual(h.map((w) => [w.start, w.end, w.done, w.complete, w.near]), [
+    ['2026-10-05', '2026-10-11', 600, true, false],
+    ['2026-10-12', '2026-10-18', 500, false, true],
+    ['2026-10-19', '2026-10-25', 300, false, false],
+  ]);
+  assert.equal(goalHistory({ scope: 'week', a: '', m: 600 }, dm, '2026-10-29').length, 12);
+  const m = goalHistory({ scope: 'month', a: '', m: 3000 }, dm, '2026-10-29', 1, 2);
+  assert.deepEqual(m.map((x) => [x.start, x.end]), [['2026-08-01', '2026-08-31'], ['2026-09-01', '2026-09-30']]);
+  assert.equal(goalHistory({ scope: 'month', a: '', m: 3000 }, dm, '2026-10-29').length, 6);
+  assert.deepEqual(goalHistory({ scope: 'day', a: '', m: 30 }, dm, '2026-10-29'), []);
 });
 
 test('week buckets start on Monday and aggregate per activity', () => {

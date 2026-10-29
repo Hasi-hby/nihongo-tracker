@@ -1,17 +1,18 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.5.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.5.0';
-import { Sync } from './sync.js?v=2.5.0';
-import { parseInbox } from './inbox.js?v=2.5.0';
-import * as St from './stats.js?v=2.5.0';
-import * as Ch from './charts.js?v=2.5.0';
-import { buildExport } from './export.js?v=2.5.0';
-import { zip } from './zip.js?v=2.5.0';
-import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.5.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.6.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.6.0';
+import { Sync } from './sync.js?v=2.6.0';
+import { parseInbox } from './inbox.js?v=2.6.0';
+import * as St from './stats.js?v=2.6.0';
+import * as Ch from './charts.js?v=2.6.0';
+import { buildExport } from './export.js?v=2.6.0';
+import { zip } from './zip.js?v=2.6.0';
+import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.6.0';
 import {
-  addDays, dayOf, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, pad, parseDuration, startOfWeek, todayStr, uid,
-} from './util.js?v=2.5.0';
+  addDays, dayOf, diffDays, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, MONTHS, MONTHS_SHORT, pad, parseDuration,
+  startOfWeek, todayStr, uid,
+} from './util.js?v=2.6.0';
 
-const VERSION = '2.5.0';
+const VERSION = '2.6.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -305,6 +306,10 @@ const ICON_PATHS = {
   plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
   edit: 'M4 17.25V20h2.75L17.8 8.94l-2.75-2.75zM20.7 6.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75z',
   tv: 'M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-8v2h4v2H7v-2h4v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v9h16V6z',
+  close: 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z',
+  clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3h2v4.6l3.7 2.2-1 1.7L11 12.7z',
+  flag: 'M5 2h2v20H5zm3 1h11l-2.5 4.5L19 12H8z',
+  stack: 'M4 4h4v6H4zm0 7h4v9H4zm6-7h4v10h-4zm0 11h4v5h-4zm6-11h4v3h-4zm0 4h4v12h-4z',
 };
 const icon = (name, size = 18) => `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${ICON_PATHS[name]}"/></svg>`;
 
@@ -434,6 +439,18 @@ function paceLine(q, pace) {
   return `<span class="nw">noch ${fmtMin(pace.left)}</span>${SEP}<span class="nw${ahead ? ' pace-ahead' : ''}">${off}</span>${SEP}<span class="nw">${rest}</span>`;
 }
 
+/** A week or month goal's last 12 weeks (6 months) as dots: reached, nearly (80 %+) or missed. */
+function goalHistoryRow(q, d) {
+  const hist = St.goalHistory(q, d.dm, d.today, ws());
+  if (!hist.length) return '';
+  const week = q.scope === 'week';
+  const label = (h) => (week ? `${fmtDate(h.start, { year: false })} – ${fmtDate(h.end, { year: false })}` : `${MONTHS[+h.start.slice(5, 7) - 1]} ${h.start.slice(0, 4)}`);
+  const hits = hist.filter((h) => h.complete).length;
+  return `<div class="qhist"><span class="qhist-dots">${hist.map((h) => `<i class="${h.complete ? 'ok' : h.near ? 'near' : 'miss'}"
+      title="${label(h)} · ${fmtMin(h.done)} (${Math.floor(h.pct * 100)} %)"></i>`).join('')}</span>
+    <span>in ${hits} der letzten ${hist.length} ${week ? 'Wochen' : 'Monate'} erreicht</span></div>`;
+}
+
 function goalsPanel(d) {
   const row = ({ q, p }) => {
     const pace = p.complete ? null : St.questPace(q, d.dm, d.today, ws());
@@ -441,7 +458,8 @@ function goalsPanel(d) {
       <div class="quest-top"><span class="quest-name">${esc(goalName(q))}</span>
         <span class="num quest-amt">${fmtMin(p.done)} / ${fmtMin(p.target)}</span></div>
       <div class="bar ${p.complete ? 'done' : ''}"><i style="width:${pct(p.pct)}%"></i>${pace?.expected > 0 ? `<b class="pace" style="left:${pct(pace.expectedPct)}%"></b>` : ''}</div>
-      <div class="quest-sub">${p.complete ? 'Erreicht' : pace ? paceLine(q, pace) : `noch ${fmtMin(p.target - p.done)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div></button>`;
+      <div class="quest-sub">${p.complete ? 'Erreicht' : pace ? paceLine(q, pace) : `noch ${fmtMin(p.target - p.done)}`}${q.name ? ` · ${esc(q.a || 'Gesamt')}` : ''}</div>
+      ${goalHistoryRow(q, d)}</button>`;
   };
   const head = `<div class="card-head"><h2>${icon('target')} Ziele</h2>
     <button class="btn btn-sm btn-ghost" data-action="quest-new">${icon('plus', 14)} Ziel</button></div>`;
@@ -476,6 +494,29 @@ function timerCard() {
       ${running ? '<button class="btn" data-action="timer" data-kind="pause">Pause</button>' : '<button class="btn" data-action="timer" data-kind="resume">Weiter</button>'}
       <button class="btn btn-primary" data-action="timer" data-kind="stop">Stop &amp; loggen</button>
       <span class="spacer"></span><button class="btn btn-danger btn-sm" data-action="timer" data-kind="discard">Verwerfen</button></div></div>`;
+}
+
+/** In the first three days of a week: last week in a few numbers, until tapped away (on every device). */
+function weekRecapCard(d) {
+  const start = addDays(startOfWeek(d.today, ws()), -7), end = addDays(start, 6);
+  if (diffDays(end, d.today) > 3 || settings().recapSeen === start) return '';
+  const rc = St.recap(d.dm, St.periodRange('week', start, { ws: ws() }), d.today, ws());
+  if (!rc.total) return '';
+  const line = (ok, what, amount) => `<div class="recap-line ${ok ? 'ok' : ''}"><span class="recap-mark">${ok ? '✓' : '–'}</span>
+    <span class="recap-what">${what}</span><b class="num">${amount}</b></div>`;
+  const lines = quests().filter((q) => q.scope === 'week').map((q) => {
+    const p = St.questProgress(q, d.dm, end, ws());
+    return line(p.complete, esc(goalName(q)), `${fmtMin(p.done)} / ${fmtMin(p.target)}`);
+  });
+  if (chorusCfg().on) {
+    const n = [...eachDay(start, end)].filter((x) => ['done', 'redeemed'].includes(d.chorus.marks.get(x))).length;
+    lines.push(line(n === 7, 'Chorus', `${n} / 7 Tage`));
+  }
+  return `<div class="card recap"><div class="card-head"><h2>${icon('calendar')} Letzte Woche</h2>
+      <span class="sub">${fmtDate(start, { year: false })} – ${fmtDate(end, { year: false })}</span><span class="spacer"></span>
+      <button class="btn btn-sm btn-ghost" data-action="recap-hide" data-start="${start}" title="Ausblenden" aria-label="Rückblick ausblenden">${icon('close', 16)}</button></div>
+    ${recapTiles(rc, 'week', false)}
+    ${lines.length ? `<div class="recap-lines">${lines.join('')}</div>` : ''}</div>`;
 }
 
 /** Today's (or this week's) time per activity, compared with the average of the 7 days before. */
@@ -616,6 +657,7 @@ function viewHome() {
   const recent = [...d.live].sort((a, b) => b.t - a.t).slice(0, 6);
   return `<div class="grid">
     ${headCard(d)}
+    ${weekRecapCard(d)}
     ${!S.device.token && !d.live.length ? `<div class="card"><div class="card-head"><h2>Willkommen</h2></div>
       <p style="margin:0 0 12px">Verbinde dieses Gerät mit deinem privaten Daten-Repo, dann lädt dein kompletter Verlauf.</p>
       <button class="btn btn-primary" data-action="goto-settings" data-anchor="sync">Gerät verbinden</button></div>` : ''}
@@ -645,9 +687,69 @@ function recapTiles(rc, p, running) {
     ${last}</div>`;
 }
 
+const statsRange = (d) => St.periodRange(S.ui.period, S.ui.anchor || d.today, { ws: ws(), firstDay: d.firstDay, today: d.today });
+const allRange = (d) => St.periodRange('all', d.today, { ws: ws(), firstDay: d.firstDay, today: d.today });
+const WD_LONG = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+const DAY_PARTS = [['morgens', 4, 12], ['nachmittags', 12, 18], ['abends', 18, 28]]; // evening runs to 4 am
+
+/** "Ø 30 Tage: jetzt 3 h 40 min am Tag · vor 30 Tagen 4 h 30 min" under the history chart. */
+function trendNote(d) {
+  const now = St.avgPerDay(d.dm, d.today), before = St.avgPerDay(d.dm, addDays(d.today, -30));
+  if (!now && !before) return '';
+  return `<div class="trend-note"><span class="trend-key"></span><span class="nw">Ø 30 Tage: jetzt <b class="num">${fmtMin(now)}</b> am Tag</span>${SEP}<span class="nw">vor 30 Tagen ${fmtMin(before)}</span></div>`;
+}
+
+/** Weekday × clock hour grid for the period (drawn by drawHours) and where most of the time goes. */
+function hoursCard(d, range) {
+  const g = St.hourGrid(d.live, range.start, range.end);
+  const head = `<div class="card-head"><h2>${icon('clock')} Wann du lernst</h2><span class="sub">geschätzt aus Log-Zeit und Dauer</span></div>`;
+  if (!g.total) return `<div class="card" data-swap="stats">${head}<p class="muted">Keine Logs in diesem Zeitraum.</p></div>`;
+  const top = (arr) => arr.indexOf(Math.max(...arr));
+  const h = top(g.byHour), wd = top(g.byWd);
+  const parts = DAY_PARTS.map(([name, a, b]) => {
+    let m = 0;
+    for (let x = a; x < b; x++) m += g.byHour[x % 24];
+    return `<span class="nw" title="${a}–${b % 24} Uhr">${name} <b class="num">${Math.round((m / g.total) * 100)} %</b></span>`;
+  });
+  return `<div class="card" data-swap="stats">${head}
+    <div class="scroll-x" id="hourBox"></div>
+    <div class="hg-sum"><span class="nw">meiste Zeit <b>${h}–${h + 1} Uhr</b></span>${SEP}<span class="nw">stärkster Tag <b>${WD_LONG[wd]}</b></span>${SEP}${parts.join(SEP)}</div></div>`;
+}
+
+/** Each month's mix of activities over the whole history (drawn by drawShares), this month against the last. */
+function sharesCard(d) {
+  const agg = St.aggregate(d.dm, allRange(d));
+  if (!agg.total) return '';
+  const cur = agg.buckets.at(-1), prev = agg.buckets.at(-2);
+  const share = (b, a) => (b?.total ? ((b.by[a] || 0) / b.total) * 100 : 0);
+  const list = chartActs(agg.by).filter((a) => share(cur, a.name) || share(prev, a.name));
+  const mon = (b) => MONTHS_SHORT[+b.key.slice(5, 7) - 1];
+  const rows = list.map((a) => {
+    const now = share(cur, a.name), diff = Math.round(now - share(prev, a.name));
+    return `<div class="legend-row"><span class="sw" style="background:${a.color}"></span><span>${esc(a.name)}</span>
+      <span class="num">${Math.round(now)} %</span>${prev ? `<span class="pct num">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${Math.abs(diff)}</span>` : ''}</div>`;
+  }).join('');
+  return `<div class="card"><div class="card-head"><h2>${icon('stack')} Anteile pro Monat</h2><span class="sub">aktiv, passiv, Anki … in Prozent der Zeit</span></div>
+    <div class="scroll-x" id="shareBox"></div>
+    <div class="legend share-legend"><div class="legend-row legend-head"><span></span><span></span><span>${mon(cur)}</span>${prev ? `<span class="pct">ggü. ${mon(prev)}</span>` : ''}</div>${rows}</div></div>`;
+}
+
+/** Every milestone reached (100, 250, 500, 750, 1000 h, then every 500) and the next one at the current pace. */
+function milestonesCard(d) {
+  const perDay = St.avgPerDay(d.dm, d.today);
+  const t = St.milestoneTimeline(d.dm, d.today, perDay);
+  const rows = t.reached.map((r, i) => `<div class="mtl-row"><i></i><b class="mtl-h num">${fmtNum(r.hours)} h</b><span class="mtl-d">${fmtDate(r.d)}</span>
+    <span class="mtl-sub">${!i ? `${days(r.days)} ab dem ersten Log` : r.days ? `nach ${fmtNum(r.days)} Tag${r.days === 1 ? '' : 'en'}` : 'am selben Tag'}${SEP}Ø ${fmtMinShort(r.perDay)} am Tag</span></div>`);
+  const n = t.next;
+  rows.push(`<div class="mtl-row mtl-next"><i></i><b class="mtl-h num">${fmtNum(n.hours)} h</b><span class="mtl-d">${n.date ? `etwa ${fmtDate(n.date)}` : 'offen'}</span>
+    <span class="mtl-sub">noch ${fmtNum(Math.ceil(n.leftMin / 60))} h${perDay ? `${SEP}bei Ø ${fmtMinShort(perDay)} am Tag wie in den letzten 30 Tagen` : ''}</span></div>`);
+  return `<div class="card"><div class="card-head"><h2>${icon('flag')} Meilensteine</h2><span class="sub">${fmtNum(Math.floor(t.total / 60))} h seit ${fmtDate(d.firstDay)}</span></div>
+    <div class="mtl">${rows.join('')}</div></div>`;
+}
+
 function viewStats() {
-  const d = D(), p = S.ui.period, anchor = S.ui.anchor || d.today;
-  const range = St.periodRange(p, anchor, { ws: ws(), firstDay: d.firstDay, today: d.today });
+  const d = D(), p = S.ui.period;
+  const range = statsRange(d);
   const agg = St.aggregate(d.dm, range);
   const rc = St.recap(d.dm, range, d.today, ws());
   const list = chartActs(agg.by).filter((a) => agg.by[a.name] > 0).sort((a, b) => agg.by[b.name] - agg.by[a.name]);
@@ -668,24 +770,53 @@ function viewStats() {
         </div>
         ${recapTiles(rc, p, isNow)}
       </div></div>
-    <div class="card" data-swap="stats"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · Linie: kumuliert (rechte Achse)</span></div>
-      <div class="scroll-x" id="barsBox" data-range="1"></div></div>
-    ${chorusCard(d)}
+    <div class="card" data-swap="stats"><div class="card-head"><h2>Verlauf</h2><span class="sub">Stunden pro ${p === 'week' || p === 'month' ? 'Tag' : 'Monat'} · Linie: kumuliert (rechte Achse)
+        · gestrichelt: Ø 30 Tage${p === 'week' || p === 'month' ? '' : ', auf den Monat gerechnet'}</span></div>
+      <div class="scroll-x" id="barsBox" data-range="1"></div>${trendNote(d)}</div>
+    ${hoursCard(d, range)}
     <div class="card" data-swap="stats"><div class="card-head"><h2>Aktivitäten</h2></div><div class="list">
       ${list.map((a) => `<div class="item"><span class="dot" style="background:${a.color}"></span><div class="what"><b>${esc(a.name)}</b>
         <div class="note">${fmtNum(counts[a.name] || 0)} Logs · Ø ${fmtMin(agg.by[a.name] / (counts[a.name] || 1))} pro Log</div></div>
         <div class="right num">${fmtH(agg.by[a.name])}</div></div>`).join('') || '<p class="muted">Keine Logs.</p>'}</div></div>
+    ${sharesCard(d)}
+    ${milestonesCard(d)}
+    ${chorusCard(d)}
   </div>`;
+}
+
+/** The statistics charts that need the measured width of their box. */
+function drawStats() {
+  drawBars();
+  drawHours();
+  drawShares();
 }
 
 function drawBars() {
   const box = $('#barsBox');
   if (!box) return;
-  const d = D();
-  const range = St.periodRange(S.ui.period, S.ui.anchor || d.today, { ws: ws(), firstDay: d.firstDay, today: d.today });
+  const d = D(), range = statsRange(d);
   const agg = St.aggregate(d.dm, range);
   const width = Math.max(box.clientWidth, range.buckets.length * 14, 320);
-  box.innerHTML = Ch.historyBars(agg, chartActs(agg.by), { width, height: 270, until: d.today });
+  // the 30-day line starts once there are 30 days behind it and ends yesterday, like avgPerDay
+  const yesterday = addDays(d.today, -1), from = addDays(d.firstDay, 29);
+  const trend = St.rollingAvg(d.dm, range.start > from ? range.start : from, range.end < yesterday ? range.end : yesterday);
+  box.innerHTML = Ch.historyBars(agg, chartActs(agg.by), { width, height: 270, until: d.today, trend });
+  box.scrollLeft = box.scrollWidth;
+}
+
+function drawHours() {
+  const box = $('#hourBox');
+  if (!box) return;
+  const d = D(), range = statsRange(d);
+  box.innerHTML = Ch.hourGrid(St.hourGrid(d.live, range.start, range.end), { width: Math.max(box.clientWidth, 280) });
+}
+
+function drawShares() {
+  const box = $('#shareBox');
+  if (!box) return;
+  const d = D(), agg = St.aggregate(d.dm, allRange(d));
+  const width = Math.max(box.clientWidth, agg.buckets.length * 14);
+  box.innerHTML = Ch.shareBars(agg, chartActs(agg.by), { width, height: 190 });
   box.scrollLeft = box.scrollWidth;
 }
 
@@ -1141,7 +1272,7 @@ function render() {
   justLogged = false;
   const td = $('#topDate');
   if (td) td.textContent = fmtDate(today(), { weekday: true, year: false });
-  if (v === 'stats') drawBars();
+  if (v === 'stats') drawStats();
   if (v === 'logs') renderLogList();
   const hs = $('#heatScroll');
   if (hs) {
@@ -1202,6 +1333,7 @@ async function onAction(el) {
       return;
     }
     case 'chorus-log': return chorusLog();
+    case 'recap-hide': return setSettings({ recapSeen: el.dataset.start }, 'Rückblick ausgeblendet');
     case 'quest-new': return openQuestModal();
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
@@ -1357,7 +1489,7 @@ function bindEvents() {
   addEventListener('offline', () => sync.setStatus('offline'));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync.run(); render(); pcRefresh(); } });
   let rt;
-  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawBars(); }, 150); });
+  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.ui.view === 'stats') drawStats(); }, 150); });
 
   setInterval(() => {
     const el = $('#timerClock');
