@@ -1,20 +1,20 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.8.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.8.0';
-import { Sync } from './sync.js?v=2.8.0';
-import { parseInbox } from './inbox.js?v=2.8.0';
-import * as St from './stats.js?v=2.8.0';
-import * as Ch from './charts.js?v=2.8.0';
-import { buildExport } from './export.js?v=2.8.0';
-import { zip } from './zip.js?v=2.8.0';
-import { ankiTimePC, markSeenPC, PC, PC_ACTIONS, PC_REPORT, pcAvailable, refreshPC, runPC } from './pc.js?v=2.8.0';
-import { choosePick, NOW_REASONS, slimPicks } from './now.js?v=2.8.0';
-import { ankiAutoLogs } from './anki.js?v=2.8.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.8.1';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.8.1';
+import { Sync } from './sync.js?v=2.8.1';
+import { parseInbox } from './inbox.js?v=2.8.1';
+import * as St from './stats.js?v=2.8.1';
+import * as Ch from './charts.js?v=2.8.1';
+import { buildExport } from './export.js?v=2.8.1';
+import { zip } from './zip.js?v=2.8.1';
+import { ankiTimePC, markSeenPC, PC, PC_ACTIONS, PC_REPORT, pcAvailable, refreshPC, runPC } from './pc.js?v=2.8.1';
+import { choosePick, NOW_REASONS, slimPicks, streams } from './now.js?v=2.8.1';
+import { ankiAutoLogs } from './anki.js?v=2.8.1';
 import {
   addDays, dayOf, diffDays, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, MONTHS, MONTHS_SHORT, pad, parseDuration,
   startOfWeek, todayStr, uid,
-} from './util.js?v=2.8.0';
+} from './util.js?v=2.8.1';
 
-const VERSION = '2.8.0';
+const VERSION = '2.8.1';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -721,7 +721,7 @@ function nowCard() {
   const radio = p.source === 'radio';
   // the radio episodes are on the phone, so the PC doesn't offer them
   const reasons = NOW_REASONS.filter((r) => r.id !== 'radio' || (!pcAvailable() && nowPicks().some((x) => x.source === 'radio')));
-  const sub = [p.series && p.series !== p.title ? esc(p.series) : '', radio ? 'in VLC unter Radio' : ANKI_SOURCES[p.source] || esc(p.source),
+  const sub = [p.series && p.series !== p.title ? esc(p.series) : '', radio ? (streams(p) ? 'spielt in VLC' : 'in VLC unter Radio') : ANKI_SOURCES[p.source] || esc(p.source),
     p.minutes ? `${Math.round(p.minutes)} min` : ''];
   return `<div class="card now-card" data-swap="now"><div class="card-head"><h2>${icon('play')} Jetzt 5 Minuten?</h2></div>
     <div class="now-pick"><span class="now-title">${esc(p.title)}</span><span class="now-meta">${sub.filter(Boolean).join(SEP)}</span></div>

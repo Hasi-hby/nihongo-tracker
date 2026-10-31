@@ -2,7 +2,7 @@
 
 import {
   addDays, eachDay, esc, fmtDate, fmtH, fmtMin, fmtMinShort, MONTHS_SHORT, startOfWeek, WD_SHORT, weekday,
-} from './util.js?v=2.8.0';
+} from './util.js?v=2.8.1';
 
 const nf = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
 

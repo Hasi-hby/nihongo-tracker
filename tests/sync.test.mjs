@@ -260,5 +260,11 @@ test('the PC uploads newer Anki picks as picks.json, other devices take them ove
   await phone.sync.run();
   assert.deepEqual(got.at(-1).radio, [{ id: 'radio:ep1' }]);
   assert.equal(got.length, 4);
+  // the same episode got its OneDrive link: picks.json goes up again
+  local = { updated: '2026-10-30T05:10:00', picks: [], radio: [{ id: 'radio:ep1', url: 'vlc-x-callback://x-callback-url/stream?url=x' }] };
+  await pc.sync.run();
+  await phone.sync.run();
+  assert.equal(got.at(-1).radio[0].url, 'vlc-x-callback://x-callback-url/stream?url=x');
+  assert.equal(got.length, 5);
   assert.ok(!fake.calls.some((c) => c.startsWith('P PUT contents/picks.json')), 'only the PC writes picks.json');
 });

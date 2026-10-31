@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { choosePick, slimPicks } from '../js/now.js';
+import { choosePick, slimPicks, streams } from '../js/now.js';
 
 const NOW = Date.parse('2026-10-29T18:00:00Z');
 const pick = (id, source, minutes, coverage, extra = {}) => ({
@@ -68,7 +68,7 @@ test('expired TVer picks are never chosen', () => {
 });
 
 const EPS = [
-  { id: 'ep1', show: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108', minutes: 62, added: '2026-10-13' },
+  { id: 'ep1', show: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108', minutes: 62, added: '2026-10-13', url: 'https://x/download.aspx?share=A1' },
   { id: 'ep2', show: 'キヨ 全身ラジオ', title: 'キヨラジオ 誕生日', minutes: 48, added: '2026-10-14' },
   { show: 'kaputt', title: 'ohne id', minutes: 3 },
 ];
@@ -76,9 +76,11 @@ const EPS = [
 test('picks.json carries the radio episodes on the phone, when there are any', () => {
   const s = slimPicks({ updated: 'u', picks: [pick('a', 'youtube', 40, 0.8)] }, NOW, EPS);
   assert.deepEqual(s.radio, [
-    { id: 'radio:ep1', source: 'radio', series: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108', url: 'vlc://', minutes: 62 },
-    { id: 'radio:ep2', source: 'radio', series: 'キヨ 全身ラジオ', title: 'キヨラジオ 誕生日', url: 'vlc://', minutes: 48 },
+    { id: 'radio:ep1', source: 'radio', series: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108',
+      url: 'vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Fx%2Fdownload.aspx%3Fshare%3DA1', minutes: 62 },
+    { id: 'radio:ep2', source: 'radio', series: 'キヨ 全身ラジオ', title: 'キヨラジオ 誕生日', url: 'vlc-x-callback://x-callback-url/', minutes: 48 },
   ]);
+  assert.deepEqual(s.radio.map(streams), [true, false], 'an episode with a OneDrive link streams, one without only opens VLC');
   assert.ok(!('radio' in slimPicks({ updated: 'u', picks: [] }, NOW, [])), 'no episodes, no field');
 });
 
