@@ -9,8 +9,8 @@
 // a request is in flight are never lost. Inbox files are merged into the logs on pull and
 // deleted only after the year files holding them were pushed.
 
-import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=2.7.0';
-import { getKV, setKV } from './store.js?v=2.7.0';
+import { mergeLists, mergeMeta, serializeLogs, serializeMeta } from './merge.js?v=2.8.0';
+import { getKV, setKV } from './store.js?v=2.8.0';
 
 const API = 'https://api.github.com';
 
@@ -25,8 +25,9 @@ function b64(text) {
   return btoa(bin);
 }
 
-/** A run's picks: a newer run, or the same run with a pick marked as seen, changes it. */
-const picksKey = (p) => `${p.updated || ''}|${(p.picks || []).map((x) => x.id).join(',')}`;
+/** A run's picks: a newer run, the same run with a pick marked as seen, or new radio episodes change it. */
+const ids = (list) => (list || []).map((x) => x.id).join(',');
+const picksKey = (p) => `${p.updated || ''}|${ids(p.picks)}|${ids(p.radio)}`;
 
 const freshState = () => ({
   repoKey: '', etag: null, metaSha: null, logsTree: null, files: {}, dirty: { meta: 0, years: {} }, lastOk: null,

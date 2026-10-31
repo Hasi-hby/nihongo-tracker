@@ -12,7 +12,7 @@ export const PC_ACTIONS = {
   taste: 'Geschmack auffrischen',
 };
 /** state: unknown (not asked yet) | online | offline | blocked (by the browser) | none (not the PC) */
-export const PC = { state: 'unknown', status: null, picks: null, picksAt: null };
+export const PC = { state: 'unknown', status: null, picks: null, picksAt: null, radio: null };
 export const pcAvailable = () => /Windows/.test(navigator.userAgent);
 
 /** Chrome asks once whether a website may reach apps on this device ("Local Network Access"). */
@@ -54,7 +54,19 @@ export async function refreshPC() {
       PC.picksAt = PC.status.updated;
     } catch { /* keep the old list */ }
   }
+  try {
+    PC.radio = (await getJSON('/radio', 3000)).episodes; // the Radio-Abo episodes on the phone
+  } catch { /* an older helper: keep what we had */ }
   return wasRunning && !PC.status.running ? PC.status.last : null;
+}
+
+/** Anki's study time per day, { days: { 'YYYY-MM-DD': { min, last } } }; null when the helper can't tell. */
+export async function ankiTimePC(dayEnd = 0) {
+  try {
+    return await getJSON(`/anki-time?days=7&dayEnd=${dayEnd}`, 4000);
+  } catch {
+    return null;
+  }
 }
 
 /** Don't recommend this pick (scope 'item') or its whole series ('series') again; undo brings it back. */

@@ -254,5 +254,11 @@ test('the PC uploads newer Anki picks as picks.json, other devices take them ove
   await phone.sync.run();
   assert.deepEqual(got.at(-1).picks, []);
   assert.equal(got.length, 3);
+  // a new radio episode on the phone: same run, new file
+  local = { updated: '2026-10-30T05:10:00', picks: [], radio: [{ id: 'radio:ep1' }] };
+  await pc.sync.run();
+  await phone.sync.run();
+  assert.deepEqual(got.at(-1).radio, [{ id: 'radio:ep1' }]);
+  assert.equal(got.length, 4);
   assert.ok(!fake.calls.some((c) => c.startsWith('P PUT contents/picks.json')), 'only the PC writes picks.json');
 });

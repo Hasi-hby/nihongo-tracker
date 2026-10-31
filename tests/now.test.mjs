@@ -66,3 +66,29 @@ test('expired TVer picks are never chosen', () => {
   assert.equal(choosePick(list, { now: NOW }).id, 'ok');
   assert.equal(choosePick(list, { reason: 'time', now: NOW }).id, 'ok');
 });
+
+const EPS = [
+  { id: 'ep1', show: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108', minutes: 62, added: '2026-10-13' },
+  { id: 'ep2', show: 'キヨ 全身ラジオ', title: 'キヨラジオ 誕生日', minutes: 48, added: '2026-10-14' },
+  { show: 'kaputt', title: 'ohne id', minutes: 3 },
+];
+
+test('picks.json carries the radio episodes on the phone, when there are any', () => {
+  const s = slimPicks({ updated: 'u', picks: [pick('a', 'youtube', 40, 0.8)] }, NOW, EPS);
+  assert.deepEqual(s.radio, [
+    { id: 'radio:ep1', source: 'radio', series: 'ぼっち・ざ・らじお！', title: 'ぼっちらじお #108', url: 'vlc://', minutes: 62 },
+    { id: 'radio:ep2', source: 'radio', series: 'キヨ 全身ラジオ', title: 'キヨラジオ 誕生日', url: 'vlc://', minutes: 48 },
+  ]);
+  assert.ok(!('radio' in slimPicks({ updated: 'u', picks: [] }, NOW, [])), 'no episodes, no field');
+});
+
+test('on the way: the oldest episode not opened yet; every other reason leaves radio out', () => {
+  const all = [...PICKS, ...slimPicks({ picks: [] }, NOW, EPS).radio];
+  assert.equal(choosePick(all, { reason: 'radio', now: NOW }).id, 'radio:ep1');
+  assert.equal(choosePick(all, { reason: 'radio', skip: ['radio:ep1'], now: NOW }).id, 'radio:ep2');
+  assert.equal(choosePick(all, { reason: 'radio', skip: ['radio:ep1', 'radio:ep2'], now: NOW }), null);
+  for (const reason of ['', 'time', 'else', 'what']) {
+    assert.notEqual(choosePick(all, { reason, shown: PICKS[0], now: NOW }).source, 'radio', reason || 'no reason');
+  }
+  assert.equal(choosePick(all, { reason: 'time', skip: PICKS.map((p) => p.id), now: NOW }), null, 'never a radio episode instead');
+});

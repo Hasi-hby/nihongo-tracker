@@ -1,19 +1,20 @@
-import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.7.0';
-import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.7.0';
-import { Sync } from './sync.js?v=2.7.0';
-import { parseInbox } from './inbox.js?v=2.7.0';
-import * as St from './stats.js?v=2.7.0';
-import * as Ch from './charts.js?v=2.7.0';
-import { buildExport } from './export.js?v=2.7.0';
-import { zip } from './zip.js?v=2.7.0';
-import { PC, PC_ACTIONS, PC_REPORT, markSeenPC, refreshPC, runPC } from './pc.js?v=2.7.0';
-import { choosePick, NOW_REASONS, slimPicks } from './now.js?v=2.7.0';
+import { allLogs, getKV, openStore, persistent, putLogs, setKV } from './store.js?v=2.8.0';
+import { canonLog, defaultMeta, mergeLists, mergeMeta, renameActivity } from './merge.js?v=2.8.0';
+import { Sync } from './sync.js?v=2.8.0';
+import { parseInbox } from './inbox.js?v=2.8.0';
+import * as St from './stats.js?v=2.8.0';
+import * as Ch from './charts.js?v=2.8.0';
+import { buildExport } from './export.js?v=2.8.0';
+import { zip } from './zip.js?v=2.8.0';
+import { ankiTimePC, markSeenPC, PC, PC_ACTIONS, PC_REPORT, pcAvailable, refreshPC, runPC } from './pc.js?v=2.8.0';
+import { choosePick, NOW_REASONS, slimPicks } from './now.js?v=2.8.0';
+import { ankiAutoLogs } from './anki.js?v=2.8.0';
 import {
   addDays, dayOf, diffDays, eachDay, esc, fmtClock, fmtDate, fmtH, fmtMin, fmtMinShort, fmtNum, MONTHS, MONTHS_SHORT, pad, parseDuration,
   startOfWeek, todayStr, uid,
-} from './util.js?v=2.7.0';
+} from './util.js?v=2.8.0';
 
-const VERSION = '2.7.0';
+const VERSION = '2.8.0';
 const $ = (sel, root = document) => root.querySelector(sel);
 // activity colours that read well on the dark background
 const PALETTE = ['#3ee6b5', '#7aa2ff', '#ffd27a', '#ff9ec4', '#b9a6ff', '#7fd1c7', '#e9a23b', '#ff8a6b', '#8fd3ff', '#c5e478'];
@@ -136,6 +137,7 @@ async function saveLog(l, { desc, prevYear } = {}) {
   if (prevYear && prevYear !== c.d.slice(0, 4)) sync.markYear(prevYear);
   S.ver++;
   sync.schedule();
+  if (c.a === 'Anki' && c.src !== 'anki') syncAnki(); // a hand-made Anki log: the automatic one adapts
 }
 
 /** Many logs at once (e.g. renaming an activity): one store write and one sync mark per year. */
@@ -213,16 +215,9 @@ function setTimer(next, desc) {
   return setMeta((m) => { m.timer = { ...next, u: Date.now() }; }, desc, 800);
 }
 
-const FIVE_MS = 5 * 60000;
-const fiveText = (elapsed) => (elapsed >= FIVE_MS ? '✓ 5 Minuten. Du bist drin.' : 'Erstmal nur 5 Minuten');
-
-/** A start from the "Jetzt" card carries its title and remembers its pick, so no device offers it again. */
-function startTimer(a, { md = '', five = false, pick = null } = {}) {
-  return setMeta((m) => {
-    const now = Date.now();
-    m.timer = { state: 'running', a, ...(md && { md }), ...(five && { five }), start: now, begin: now, acc: 0, u: now };
-    if (pick) m.settings = { ...m.settings, nowStarted: [...(m.settings?.nowStarted || []).filter((x) => x !== pick), pick].slice(-30), u: now };
-  }, `Timer ${a}`, 800);
+function startTimer(a) {
+  const now = Date.now();
+  return setTimer({ state: 'running', a, start: now, begin: now, acc: 0 }, `Timer ${a}`);
 }
 
 async function timerAction(kind) {
@@ -365,7 +360,7 @@ function logItem(l, { date = true } = {}) {
     <span class="dot" style="background:${colorOf(l.a)}"></span>
     <div class="what"><div><b>${esc(l.a)}</b> · <span class="num">${fmtMin(l.m)}</span>${l.md ? ` · ${esc(l.md)}` : ''}</div>
       ${l.n ? `<div class="note">${esc(l.n)}</div>` : ''}</div>
-    <div class="right"><span class="muted small">${date ? relDay(l.d) + ' · ' : ''}${clock(l.t)}</span>
+    <div class="right"><span class="muted small">${date ? relDay(l.d) + ' · ' : ''}${clock(l.t)}${l.src === 'anki' ? ' · auto' : ''}</span>
       <button class="link" data-action="edit-log" data-id="${esc(l.id)}" aria-label="Bearbeiten">${icon('edit', 16)}</button></div></div>`;
 }
 
@@ -506,7 +501,6 @@ function timerCard() {
   return `<div class="card timer-live"><div class="card-head"><h2>${icon('timer')} Timer</h2><span class="sub">${esc(tm.a)} · seit ${clock(tm.begin || Date.now())}</span></div>
     ${tm.md ? `<div class="timer-md">${esc(tm.md)}</div>` : ''}
     <div id="timerClock" class="timer-clock ${running ? 'running' : ''}">${fmtClock(elapsed)}</div>
-    ${tm.five ? `<div id="timerFive" class="timer-five ${elapsed >= FIVE_MS ? 'done' : ''}">${fiveText(elapsed)}</div>` : ''}
     ${running && elapsed > TIMER_WARN_MIN * 60000 ? `<div class="timer-warn">Läuft seit über ${fmtMin(Math.floor(elapsed / 3600000) * 60)} – noch dran? Beim Stoppen kannst du die Dauer korrigieren.</div>` : ''}
     <div class="row" style="margin-top:12px">
       ${running ? '<button class="btn" data-action="timer" data-kind="pause">Pause</button>' : '<button class="btn" data-action="timer" data-kind="resume">Weiter</button>'}
@@ -673,13 +667,41 @@ async function pcRefresh() {
   if (done) toast(done.ok ? `${PC_ACTIONS[done.action] || 'Anki-Empfehlungen'}: fertig` : `${PC_ACTIONS[done.action] || done.action} ist fehlgeschlagen`);
   updateAnkiCard();
   if (PC.status?.running) pcTimer = setTimeout(pcRefresh, 2000);
+  else syncAnki();
+}
+
+// ---- Anki time, logged by itself (PC) ---------------------------------------------------------
+
+let firstSync = false; // the other devices' Anki logs must be in before anything is subtracted
+let ankiBusy = false;
+
+/** Anki's study time from the helper as one log per day (Settings → "Anki-Zeit automatisch loggen"). */
+async function syncAnki() {
+  const set = settings();
+  if (!set.ankiAuto || !firstSync || PC.state !== 'online' || ankiBusy) return;
+  ankiBusy = true;
+  try {
+    const r = await ankiTimePC(set.dayEnd || 0);
+    const list = r ? ankiAutoLogs(r.days, [...S.logs.values()], { from: set.ankiFrom }) : [];
+    if (!list.length) return;
+    const t = list.find((l) => l.d === today() && !l.x), had = t && S.logs.get(t.id) && !S.logs.get(t.id).x;
+    await saveLogs(list, 'Anki automatisch');
+    render();
+    if (t) toast(had ? `Anki automatisch: jetzt ${fmtMin(t.m)}` : `Anki: ${fmtMin(t.m)} automatisch geloggt`);
+  } finally {
+    ankiBusy = false;
+  }
 }
 
 // ---- "Jetzt 5 Minuten?" ---------------------------------------------------------------------
 
-const immersionAct = () => acts().find((a) => /^immersion$/i.test(a.name))?.name || acts()[0]?.name || 'Immersion';
-/** The PC's live recommendations, elsewhere the copy from the data repo. */
-const nowPicks = () => (PC.state === 'online' && PC.picks ? slimPicks(PC.picks).picks : S.picks?.picks || []);
+/** The PC's live recommendations and radio episodes, elsewhere the copy from the data repo. */
+function nowPicks() {
+  const p = PC.state === 'online' && PC.picks ? slimPicks(PC.picks, Date.now(), PC.radio) : S.picks;
+  return [...(p?.picks || []), ...(p?.radio || [])];
+}
+// picks the card remembers as opened, on every device (with the radio episodes 30 were too few)
+const NOW_KEEP = 60;
 
 /** The pick on show: it stays until an excuse is tapped; turned-down ones come back once all were. */
 function nowPick() {
@@ -691,17 +713,20 @@ function nowPick() {
   return pick([]);
 }
 
-/** One prepared thing and a start of just five minutes; each excuse swaps it for a smaller fit. */
+/** One prepared thing to open right away; each excuse swaps it for a smaller fit. Logging stays by hand. */
 function nowCard() {
   if (['running', 'paused'].includes(timer().state)) return '';
   const p = nowPick();
-  const head = `<div class="card-head"><h2>${icon('play')} Jetzt 5 Minuten?</h2></div>`;
-  if (!p) return `<div class="card now-card">${head}<button class="btn btn-primary now-go" data-action="now-start">${icon('play', 16)} 5 Minuten starten</button></div>`;
-  const sub = [p.series && p.series !== p.title ? esc(p.series) : '', ANKI_SOURCES[p.source] || esc(p.source), p.minutes ? `${Math.round(p.minutes)} min` : ''];
-  return `<div class="card now-card" data-swap="now">${head}
+  if (!p) return '';
+  const radio = p.source === 'radio';
+  // the radio episodes are on the phone, so the PC doesn't offer them
+  const reasons = NOW_REASONS.filter((r) => r.id !== 'radio' || (!pcAvailable() && nowPicks().some((x) => x.source === 'radio')));
+  const sub = [p.series && p.series !== p.title ? esc(p.series) : '', radio ? 'in VLC unter Radio' : ANKI_SOURCES[p.source] || esc(p.source),
+    p.minutes ? `${Math.round(p.minutes)} min` : ''];
+  return `<div class="card now-card" data-swap="now"><div class="card-head"><h2>${icon('play')} Jetzt 5 Minuten?</h2></div>
     <div class="now-pick"><span class="now-title">${esc(p.title)}</span><span class="now-meta">${sub.filter(Boolean).join(SEP)}</span></div>
-    <a class="btn btn-primary now-go" href="${esc(p.url)}" target="_blank" rel="noopener" data-action="now-start" data-id="${esc(p.id)}">${icon('play', 16)} 5 Minuten starten</a>
-    <div class="now-why"><span>Gerade nicht, weil …</span>${NOW_REASONS.map((r) => `<button class="${S.ui.nowReason === r.id ? 'active' : ''}"
+    <a class="btn btn-primary now-go" href="${esc(p.url)}" ${radio ? '' : 'target="_blank" rel="noopener"'} data-action="now-start" data-id="${esc(p.id)}">${icon('play', 16)} ${radio ? 'In VLC hören' : 'Ansehen'}</a>
+    <div class="now-why"><span>Gerade nicht, weil …</span>${reasons.map((r) => `<button class="${S.ui.nowReason === r.id ? 'active' : ''}"
       data-action="now-reason" data-r="${r.id}">${r.label}</button>`).join('')}</div></div>`;
 }
 
@@ -1004,7 +1029,11 @@ function viewSettings() {
     <div class="card"><div class="card-head"><h2>Allgemein</h2></div><div class="form-grid">
       <label class="field"><span>Tagesende (Custom day end)</span><select data-change="set-dayend">${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}" ${(set.dayEnd || 0) === h ? 'selected' : ''}>${h === 0 ? 'Mitternacht (Standard)' : `${h}:00 Uhr nachts`}</option>`).join('')}</select></label>
       <div class="field"><span>Design</span><div class="seg">${[['dark', 'Dunkel'], ['light', 'Hell']].map(([k, l]) => `<button class="${S.ui.theme === k ? 'active' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`).join('')}</div></div>
-    </div></div>
+    </div>
+      <label class="toggle" style="margin-top:14px"><input type="checkbox" data-change="set-ankiauto" ${set.ankiAuto ? 'checked' : ''}>
+        <span><b>Anki-Zeit automatisch loggen</b><br><span class="muted small">Am PC liest Tsuzuku deine Lernzeit aus Anki und loggt sie
+          ${set.ankiAuto && set.ankiFrom ? `(seit ${fmtDate(set.ankiFrom)})` : 'ab heute'}. Was du schon von Hand als Anki geloggt hast, wird abgezogen, also zählt nichts doppelt.
+          Braucht den PC-Helfer.</span></span></label></div>
 
     <div class="card" id="sec-export"><div class="card-head"><h2>${icon('history')} Export &amp; Backup</h2><span class="sub">${fmtNum(d.live.length)} Logs · ${fmtH(d.tot.total)}${persistent() ? '' : ' · ⚠ Browser-Speicher nicht verfügbar'}</span></div>
       <div class="export-main">
@@ -1111,7 +1140,8 @@ function openLogModal(id = null, preset = {}) {
     const fields = { a: form.a.value, m: Math.round(m * 100) / 100, d: form.d.value, t: dt.getTime(), n: form.n.value.trim(), md: form.md.value.trim() };
     dlg.close();
     if (l) {
-      await saveLog({ ...l, ...fields }, { desc: `✎ ${fields.a}`, prevYear: l.d.slice(0, 4) });
+      // an edited Anki auto-log is yours from now on: the automatic one leaves it alone
+      await saveLog({ ...l, ...fields, ...(l.src === 'anki' && { src: 'edit' }) }, { desc: `✎ ${fields.a}`, prevYear: l.d.slice(0, 4) });
       render();
       toast('Log gespeichert');
     } else {
@@ -1395,12 +1425,10 @@ async function onAction(el) {
       animateCard = 'now';
       return render();
     }
-    case 'now-start': {
-      // a link opens the pick itself (no preventDefault anywhere), the timer starts alongside
-      const p = id ? nowPicks().find((x) => x.id === id) : null;
+    case 'now-start':
+      // the link opens the pick itself (no preventDefault anywhere); remembered, so no device offers it again
       Object.assign(S.ui, { nowReason: '', nowSkip: [], nowShown: null });
-      return startTimer(immersionAct(), { md: p?.title, five: true, pick: p?.id });
-    }
+      return setSettings({ nowStarted: [...(settings().nowStarted || []).filter((x) => x !== id), id].slice(-NOW_KEEP) }, 'Vorschlag geöffnet');
     case 'quest-new': return openQuestModal();
     case 'quest-edit': return openQuestModal(id);
     case 'timer': return timerAction(el.dataset.kind);
@@ -1520,6 +1548,7 @@ function bindEvents() {
     if (key === 'act-color') setMeta(upsertItem('activities', { id, color: el.value }), 'Farbe');
     if (key === 'set-dayend') setSettings({ dayEnd: +el.value }, 'Tagesende');
     if (key === 'set-instant') setSettings({ instantShortcuts: el.checked }, 'Shortcut-Modus');
+    if (key === 'set-ankiauto') setSettings(el.checked ? { ankiAuto: true, ankiFrom: today() } : { ankiAuto: false }, 'Anki automatisch').then(syncAnki);
     if (key.startsWith('ch-')) {
       const field = key.slice(3);
       const value = field === 'on' ? el.checked : field === 'a' ? el.value : +el.value;
@@ -1562,11 +1591,6 @@ function bindEvents() {
   setInterval(() => {
     const el = $('#timerClock');
     if (el && timer().state === 'running') el.textContent = fmtClock(timerElapsed());
-    const five = $('#timerFive');
-    if (five && !five.classList.contains('done') && timerElapsed() >= FIVE_MS) {
-      five.classList.add('done');
-      five.textContent = fiveText(FIVE_MS);
-    }
     const cd = $('#cqCountdown');
     if (cd) cd.textContent = fmtClock(msUntilDayEnd());
   }, 1000);
@@ -1608,7 +1632,7 @@ async function boot() {
     },
     getMeta: () => S.meta,
     applyMeta: async (m) => { S.meta = m; await setKV('meta', m); S.ver++; render(); },
-    localPicks: () => (PC.state === 'online' && PC.picks ? slimPicks(PC.picks) : null),
+    localPicks: () => (PC.state === 'online' && PC.picks ? slimPicks(PC.picks, Date.now(), PC.radio) : null),
     applyPicks: async (data) => { S.picks = data; await setKV('picks', data); if (S.ui.view === 'home') render(); },
     onStatus: () => renderSyncPill(),
     fromInbox: (name, data) => parseInbox(name, data, {
@@ -1632,7 +1656,7 @@ async function boot() {
   pcRefresh();
   try { sessionStorage.removeItem('nh-heal'); } catch { /* storage blocked */ }
   // colours only after the first sync, so a newer remote meta is merged before anything is rewritten
-  sync.run().then(migrateColors);
+  sync.run().then(() => { firstSync = true; syncAnki(); return migrateColors(); });
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

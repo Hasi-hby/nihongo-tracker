@@ -382,8 +382,6 @@ input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid v
 .now-why button:hover { border-color: color-mix(in srgb, var(--mint) 45%, var(--line-hi)); color: var(--text); }
 .now-why button.active { border-color: var(--mint); color: var(--mint-hi); background: var(--mint-soft); }
 .timer-md { margin: -6px 0 8px; font-size: 0.84rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timer-five { margin-top: 6px; font-size: 0.82rem; color: var(--muted); }
-.timer-five.done { color: var(--mint); }
 
 /* ---- Last week (first days of a new week) ---- */
 .recap .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
